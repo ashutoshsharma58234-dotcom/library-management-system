@@ -208,9 +208,14 @@ export default function AdminDashboard({ user, onLogout, onSwitchRole, isDarkMod
       <aside className="w-full md:w-64 bg-[#11162b] text-slate-300 border-r border-slate-800/80 flex flex-col shrink-0">
         {/* Brand Header */}
         <div className="p-4 sm:p-5 flex items-center gap-3 border-b border-slate-800/80">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/20 shrink-0">
-            <BookOpen className="w-5 h-5" />
-          </div>
+          <img
+            src="/assets/logo.png"
+            alt="MITS Gwalior LMS Logo"
+            className="w-10 h-10 rounded-full border border-blue-500/30 object-contain shadow-md shadow-blue-500/20 shrink-0"
+            onError={(e) => {
+              e.target.style.display = 'none';
+            }}
+          />
           <div className="min-w-0">
             <h1 className="font-extrabold text-white text-base tracking-wider truncate">
               LIB-ENTERPRISE

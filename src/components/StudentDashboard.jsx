@@ -110,9 +110,14 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
         <div className="flex items-center gap-6">
           {/* Logo */}
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-600/30">
-              <BookOpen className="w-5 h-5" />
-            </div>
+            <img
+              src="/assets/logo.png"
+              alt="MITS Gwalior LMS Logo"
+              className="w-9 h-9 rounded-full border border-blue-500/30 object-contain shadow-md shadow-blue-600/20 shrink-0"
+              onError={(e) => {
+                e.target.style.display = 'none';
+              }}
+            />
             <div>
               <span className="font-extrabold text-sm sm:text-base text-white tracking-wide">
                 MITS LIBRARY

@@ -19,6 +19,20 @@ export default function App() {
     }
   }, [isDarkMode]);
 
+  // Enforce institutional domain policy on active session
+  useEffect(() => {
+    if (currentUser) {
+      const email = (currentUser.email || '').toLowerCase().trim();
+      const isStudent = email.endsWith('.ac.in');
+      const isFacultyOrAdmin = email.endsWith('gwalior.in');
+      if (!isStudent && !isFacultyOrAdmin) {
+        db.logout();
+        setCurrentUser(null);
+        addToast('Access Denied: Only accounts ending in .ac.in (Students) or gwalior.in (Faculty/Admin) are authorized.', 'error', 'Security Policy');
+      }
+    }
+  }, [currentUser]);
+
   const toggleTheme = () => {
     const nextMode = !isDarkMode;
     setIsDarkMode(nextMode);

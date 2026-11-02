@@ -1,16 +1,42 @@
 import { supabase } from './supabaseClient';
 
 // =================================================================
-// 1. AUTHENTICATION SERVICE
+// 1. AUTHENTICATION SERVICE (STRICT INSTITUTIONAL EMAIL ENFORCEMENT)
 // =================================================================
 export const authService = {
+  // Validate institutional email rule:
+  // - Students MUST end in '.ac.in' (e.g., student@mitsgwl.ac.in)
+  // - Faculty & Admin MUST end in 'gwalior.in' (e.g., faculty@mitsgwalior.in)
+  validateInstituteEmail(email) {
+    const clean = (email || '').trim().toLowerCase();
+    if (!clean || !clean.includes('@')) {
+      throw new Error('Please enter a valid email address.');
+    }
+    const isStudent = clean.endsWith('.ac.in');
+    const isFacultyOrAdmin = clean.endsWith('gwalior.in');
+
+    if (!isStudent && !isFacultyOrAdmin) {
+      throw new Error(
+        'Access Denied: Only college students (.ac.in) and faculty (gwalior.in) are permitted to access this portal. Personal emails (@gmail.com, etc.) are strictly blocked.'
+      );
+    }
+    return {
+      email: clean,
+      role: clean === 'admin@mitsgwalior.in' ? 'admin' : isFacultyOrAdmin ? 'faculty' : 'student'
+    };
+  },
+
   async signUp({ email, password, full_name, enrollment_number, department, phone_number, role = 'student' }) {
     const cleanEmail = (email || '').trim().toLowerCase();
 
-    // Verify institute domain
-    if (!cleanEmail.endsWith('@mitsgwl.ac.in') && !cleanEmail.endsWith('@mitsgwalior.in')) {
-      throw new Error('Registration requires an official MITS College email (@mitsgwl.ac.in or @mitsgwalior.in).');
+    // Verify student vs faculty email rules
+    if (role === 'student' && !cleanEmail.endsWith('.ac.in')) {
+      throw new Error('Access Denied: Student registration requires an official college email ending in ".ac.in" (e.g. yourname@mitsgwl.ac.in).');
     }
+    if ((role === 'faculty' || role === 'admin') && !cleanEmail.endsWith('gwalior.in')) {
+      throw new Error('Access Denied: Faculty/Admin registration requires an official email ending in "gwalior.in" (e.g. name@mitsgwalior.in).');
+    }
+    this.validateInstituteEmail(cleanEmail);
 
     const { data, error } = await supabase.auth.signUp({
       email: cleanEmail,
@@ -44,6 +70,10 @@ export const authService = {
 
   async signIn({ email, password }) {
     const cleanEmail = (email || '').trim().toLowerCase();
+    
+    // Strict institutional domain check before attempting login
+    this.validateInstituteEmail(cleanEmail);
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email: cleanEmail,
       password

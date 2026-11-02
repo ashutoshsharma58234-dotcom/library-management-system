@@ -37,7 +37,7 @@ export const initialStudents = [
     id: "STU-003",
     name: "Alex Rivera",
     enrollment: "0901CS241005",
-    email: "alex.r@student.edu",
+    email: "alex.cs24@mitsgwl.ac.in",
     department: "Computer Science & Engineering",
     semester: "5th Sem",
     batch: "2024-2028",
@@ -397,7 +397,7 @@ export const initialTransactions = [
     userId: "STU-003",
     userName: "Alex Rivera",
     userEnrollment: "0901CS241005",
-    userEmail: "alex.r@student.edu",
+    userEmail: "alex.cs24@mitsgwl.ac.in",
     userRole: "STUDENT",
     issueDate: "2026-10-10",
     dueDate: "2026-10-24", // 8 days overdue
@@ -515,7 +515,7 @@ export const initialRequests = [
 export const initialEmailLogs = [
   {
     id: "LOG-5001",
-    recipient: "alex.r@student.edu",
+    recipient: "alex.cs24@mitsgwl.ac.in",
     studentName: "Alex Rivera",
     bookName: "Clean Code",
     action: "7-Day Return Due Reminder",
@@ -526,7 +526,7 @@ export const initialEmailLogs = [
   },
   {
     id: "LOG-5002",
-    recipient: "alex.r@student.edu",
+    recipient: "alex.cs24@mitsgwl.ac.in",
     studentName: "Alex Rivera",
     bookName: "Clean Code",
     action: "URGENT: Overdue Book Notice & Fine Warning",

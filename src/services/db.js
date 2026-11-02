@@ -256,9 +256,9 @@ export const db = {
     const cleanEmail = (data.email || '').trim().toLowerCase();
     const cleanEnrollment = (data.enrollment || '').trim().toUpperCase();
 
-    // Enforce MITS College email domain
-    if (!cleanEmail.endsWith('@mitsgwl.ac.in') && !cleanEmail.endsWith('@mitsgwalior.in')) {
-      throw new Error('Registration requires a valid MITS College email address ending in @mitsgwl.ac.in or @mitsgwalior.in.');
+    // Enforce MITS College student email domain (.ac.in)
+    if (!cleanEmail.endsWith('.ac.in')) {
+      throw new Error('Access Denied: Student registration requires an official college email ending in ".ac.in" (e.g. yourname@mitsgwl.ac.in). Other email domains are strictly prohibited.');
     }
 
     // Check duplicate email
@@ -321,7 +321,7 @@ export const db = {
       action: 'Student College Registration',
       subject: `Welcome to MITS Library! Digital Pass ${studentBarcode} Issued`,
       status: 'Delivered',
-      notes: `Verified institute domain: ${newStudent.email}. Barcode generated.`
+      notes: `Verified institute domain (.ac.in): ${newStudent.email}. Barcode generated.`
     });
 
     const userSession = {
@@ -343,6 +343,14 @@ export const db = {
   async loginStudent(input, password) {
     const students = this.getStudents();
     const query = (input || '').trim().toLowerCase();
+
+    // If logging in via email, verify that email ends in .ac.in
+    if (query.includes('@')) {
+      if (!query.endsWith('.ac.in')) {
+        throw new Error('Access Denied: Student login requires an institutional email ending in ".ac.in" (e.g. student@mitsgwl.ac.in). Other email domains are not permitted.');
+      }
+    }
+
     const student = students.find(s => s.enrollment.toLowerCase() === query || s.email.toLowerCase() === query || s.id.toLowerCase() === query);
 
     // Try Supabase auth if email format
@@ -375,6 +383,9 @@ export const db = {
     if (!student) {
       throw new Error('No student found with this enrollment number or college email.');
     }
+    if (student.email && !student.email.toLowerCase().endsWith('.ac.in')) {
+      throw new Error('Access Denied: The account associated with this enrollment does not have an authorized .ac.in institutional email.');
+    }
     if (student.status === 'SUSPENDED') {
       throw new Error(`Account for ${student.name} is SUSPENDED. Outstanding fines must be paid.`);
     }
@@ -397,8 +408,63 @@ export const db = {
     return userSession;
   },
 
+  async loginFaculty(email, password) {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    if (!cleanEmail.endsWith('gwalior.in')) {
+      throw new Error('Access Denied: Faculty login requires an official institutional email ending in "gwalior.in" (e.g. professor@mitsgwalior.in). Other email domains are not allowed.');
+    }
+
+    const facultyList = this.getFaculty();
+    const fac = facultyList.find(f => f.email.toLowerCase() === cleanEmail);
+    if (!fac) {
+      throw new Error('Faculty email not found in institutional directory.');
+    }
+    if (fac.status === 'SUSPENDED') {
+      throw new Error(`Faculty account for ${fac.name} is SUSPENDED.`);
+    }
+
+    // Try Supabase auth
+    try {
+      const { profile } = await authService.signIn({
+        email: cleanEmail,
+        password: password || 'faculty123'
+      });
+      if (profile) {
+        const userSession = {
+          id: profile.id,
+          name: profile.full_name || fac.name,
+          email: profile.email,
+          department: profile.department || fac.department,
+          role: 'FACULTY',
+          barcode: profile.library_card_barcode || fac.barcode,
+          avatar: profile.profile_image || fac.avatar
+        };
+        this.setCurrentUser(userSession);
+        return userSession;
+      }
+    } catch (e) {
+      console.warn('Supabase faculty login notice:', e.message);
+    }
+
+    const userSession = {
+      id: fac.id,
+      name: fac.name,
+      email: fac.email,
+      department: fac.department,
+      role: 'FACULTY',
+      barcode: fac.barcode,
+      avatar: fac.avatar
+    };
+    this.setCurrentUser(userSession);
+    return userSession;
+  },
+
   async loginAdmin(email, password) {
     const cleanEmail = (email || '').trim().toLowerCase();
+    if (!cleanEmail.endsWith('gwalior.in')) {
+      throw new Error('Access Denied: Admin login requires an authorized administrator email ending in "gwalior.in" (e.g. admin@mitsgwalior.in).');
+    }
+
     try {
       const { profile } = await authService.signIn({
         email: cleanEmail,
@@ -1100,7 +1166,15 @@ export const db = {
       return null;
     }
     try {
-      return JSON.parse(stored);
+      const user = JSON.parse(stored);
+      const email = (user?.email || '').toLowerCase().trim();
+      const isStudent = email.endsWith('.ac.in');
+      const isFacultyOrAdmin = email.endsWith('gwalior.in');
+      if (!isStudent && !isFacultyOrAdmin) {
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+        return null;
+      }
+      return user;
     } catch (e) {
       return null;
     }

@@ -50,31 +50,56 @@ export default function Login({ onLoginSuccess }) {
       name: 'Dr. R. K. Singh',
       email: 'admin@mitsgwalior.in',
       role: 'ADMIN',
-      desc: 'Central Library Superuser / Administrator',
+      desc: 'Central Library Superuser / Administrator (gwalior.in)',
       avatar: '/assets/Dr.Rajeev kumar singh.jpeg'
+    },
+    {
+      name: 'Dr. Rajeev Kumar Singh',
+      email: 'rajeev.singh@mitsgwalior.in',
+      role: 'FACULTY',
+      desc: 'Faculty • Head of IT Department (gwalior.in)',
+      avatar: '/assets/Dr.Rajeev kumar singh.jpeg'
+    },
+    {
+      name: 'Prof. Rajesh Verma',
+      email: 'r.verma@mitsgwalior.in',
+      role: 'FACULTY',
+      desc: 'Faculty • Information Technology Department (gwalior.in)',
+      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=200&q=80'
     },
     {
       name: 'Ankush Sharma',
       email: 'ankush.it25@mitsgwl.ac.in',
       role: 'STUDENT',
-      desc: 'Enrollment: 0901IT251014 • IT (2025-2029)',
+      desc: 'Enrollment: 0901IT251014 • IT (2025-2029) (.ac.in)',
       avatar: '/assets/ankush photo.jpeg'
     },
     {
       name: 'Deepesh Kushwah',
       email: 'deepesh.it25@mitsgwl.ac.in',
       role: 'STUDENT',
-      desc: 'Enrollment: 0901IT251028 • IT (2025-2029)',
+      desc: 'Enrollment: 0901IT251028 • IT (2025-2029) (.ac.in)',
       avatar: '/assets/deepesh photo.jpeg'
     },
     {
-      name: 'Prof. Rajesh Verma',
-      email: 'r.verma@mitsgwalior.in',
-      role: 'FACULTY',
-      desc: 'Faculty • Information Technology Department',
-      avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=200&q=80'
+      name: 'Priya Patel',
+      email: 'priya.ec23@mitsgwl.ac.in',
+      role: 'STUDENT',
+      desc: 'Enrollment: 0901EC231042 • ECE (.ac.in)',
+      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80'
+    },
+    {
+      name: 'Alex Rivera',
+      email: 'alex.cs24@mitsgwl.ac.in',
+      role: 'STUDENT',
+      desc: 'Enrollment: 0901CS241005 • CSE (.ac.in)',
+      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80'
     }
   ];
+
+  // Custom Google SSO email test
+  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
+  const [customGoogleError, setCustomGoogleError] = useState('');
 
   // Handle Student Registration with College Email
   const handleRegisterSubmit = async (e) => {
@@ -85,9 +110,9 @@ export default function Login({ onLoginSuccess }) {
 
     const email = regData.email.trim().toLowerCase();
 
-    // 1. Verify email domain
-    if (!email.endsWith('@mitsgwl.ac.in') && !email.endsWith('@mitsgwalior.in')) {
-      setErrorMsg('College Registration Error: You must use your official college email ending in @mitsgwl.ac.in');
+    // 1. Strict institutional verification: Students MUST end in .ac.in
+    if (!email.endsWith('.ac.in')) {
+      setErrorMsg('Access Denied: Student registration requires an official college email ending in ".ac.in" (e.g. yourname@mitsgwl.ac.in). Other email domains are strictly blocked.');
       setLoading(false);
       return;
     }
@@ -134,6 +159,15 @@ export default function Login({ onLoginSuccess }) {
     setErrorMsg('');
     setLoading(true);
 
+    const input = studentInput.trim().toLowerCase();
+
+    // Strict domain check if user entered an email
+    if (input.includes('@') && !input.endsWith('.ac.in')) {
+      setErrorMsg('Access Denied: Student login requires a college email ending in ".ac.in" (e.g. student@mitsgwl.ac.in). Other email domains are not allowed.');
+      setLoading(false);
+      return;
+    }
+
     try {
       const user = await db.loginStudent(studentInput, studentPassword);
       onLoginSuccess(user);
@@ -149,6 +183,13 @@ export default function Login({ onLoginSuccess }) {
     setErrorMsg('');
     setLoading(true);
 
+    const email = adminEmail.trim().toLowerCase();
+    if (!email.endsWith('gwalior.in')) {
+      setErrorMsg('Access Denied: Administrator login requires an authorized email ending in "gwalior.in" (e.g. admin@mitsgwalior.in).');
+      setLoading(false);
+      return;
+    }
+
     try {
       const adminUser = await db.loginAdmin(adminEmail, adminPassword);
       onLoginSuccess(adminUser);
@@ -159,48 +200,55 @@ export default function Login({ onLoginSuccess }) {
   };
 
   // Handle Faculty Sign In
-  const handleFacultySignIn = (e) => {
+  const handleFacultySignIn = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setLoading(true);
 
-    setTimeout(() => {
-      const facultyList = db.getFaculty();
-      const fac = facultyList.find(f => f.email.toLowerCase() === facultyEmail.trim().toLowerCase());
-      if (fac) {
-        const user = {
-          id: fac.id,
-          name: fac.name,
-          email: fac.email,
-          department: fac.department,
-          role: 'FACULTY',
-          barcode: fac.barcode,
-          avatar: fac.avatar
-        };
-        db.setCurrentUser(user);
-        onLoginSuccess(user);
-      } else {
-        setErrorMsg('Faculty email not found in institutional directory.');
-        setLoading(false);
-      }
-    }, 400);
+    const email = facultyEmail.trim().toLowerCase();
+    if (!email.endsWith('gwalior.in')) {
+      setErrorMsg('Access Denied: Faculty login requires an official institutional email ending in "gwalior.in" (e.g. professor@mitsgwalior.in). Other email domains are not allowed.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const user = await db.loginFaculty(facultyEmail);
+      onLoginSuccess(user);
+    } catch (err) {
+      setErrorMsg(err.message);
+      setLoading(false);
+    }
   };
 
   // Google SSO Selection
   const handleGoogleSelect = (acc) => {
     setLoading(true);
+    setErrorMsg('');
     setShowGoogleModal(false);
+
+    const email = (acc.email || '').toLowerCase().trim();
+    const isStudent = email.endsWith('.ac.in');
+    const isFacultyOrAdmin = email.endsWith('gwalior.in');
+
+    // Strict validation
+    if (!isStudent && !isFacultyOrAdmin) {
+      setErrorMsg(`Access Denied: "${email}" is not authorized. Only students (.ac.in) and faculty/admin (gwalior.in) are permitted to log in.`);
+      setLoading(false);
+      return;
+    }
+
     setTimeout(() => {
       let loggedUser = null;
-      if (acc.role === 'ADMIN') {
+      if (acc.role === 'ADMIN' || email === 'admin@mitsgwalior.in') {
         loggedUser = {
-          name: 'Admin',
+          name: acc.name || 'Admin',
           title: 'Superuser Access',
           email: acc.email,
           role: 'ADMIN',
-          avatar: 'A'
+          avatar: acc.avatar || 'A'
         };
-      } else if (acc.role === 'STUDENT') {
+      } else if (isStudent) {
         const students = db.getStudents();
         const s = students.find(st => st.email.toLowerCase() === acc.email.toLowerCase());
         loggedUser = {
@@ -227,6 +275,33 @@ export default function Login({ onLoginSuccess }) {
       db.setCurrentUser(loggedUser);
       onLoginSuccess(loggedUser);
     }, 300);
+  };
+
+  // Custom Google Email Submit in Modal
+  const handleCustomGoogleSubmit = (e) => {
+    e.preventDefault();
+    setCustomGoogleError('');
+    const email = customGoogleEmail.trim().toLowerCase();
+
+    if (!email || !email.includes('@')) {
+      setCustomGoogleError('Please enter a valid Google email address.');
+      return;
+    }
+
+    const isStudent = email.endsWith('.ac.in');
+    const isFacultyOrAdmin = email.endsWith('gwalior.in');
+
+    if (!isStudent && !isFacultyOrAdmin) {
+      setCustomGoogleError(`Access Denied: "${email}" is not an authorized institutional email. Students must end in ".ac.in" and Faculty must end in "gwalior.in". Personal emails (@gmail.com, etc.) are strictly blocked.`);
+      return;
+    }
+
+    handleGoogleSelect({
+      name: email.split('@')[0].replace(/[._]/g, ' ').toUpperCase(),
+      email: email,
+      role: email === 'admin@mitsgwalior.in' ? 'ADMIN' : isFacultyOrAdmin ? 'FACULTY' : 'STUDENT',
+      avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80'
+    });
   };
 
   return (
@@ -279,17 +354,25 @@ export default function Login({ onLoginSuccess }) {
             {authMode === 'signin' ? 'Sign in to your account' : 'Student Registration'}
           </h2>
 
-          {/* Institutional email info banner */}
-          <div className="text-center mb-5 text-sm text-slate-300">
-            <div className="flex items-center justify-center gap-2 text-indigo-400 font-medium mb-1">
-              <Mail className="w-4 h-4" />
-              <span>Institute Official Domain:</span>
+          {/* Institutional email info banner with strict domain requirements */}
+          <div className="text-center mb-5 p-3 rounded-2xl bg-indigo-950/40 border border-indigo-500/20 text-xs">
+            <div className="flex items-center justify-center gap-1.5 text-indigo-300 font-bold mb-1.5">
+              <Mail className="w-3.5 h-3.5" />
+              <span>Strict Institutional Access Only:</span>
             </div>
-            <p className="font-mono text-xs text-blue-400">
-              @mitsgwl.ac.in <span className="text-slate-400 font-sans">(Students)</span>
-            </p>
-            <p className="font-mono text-xs text-blue-400">
-              @mitsgwalior.in <span className="text-slate-400 font-sans">(Faculty & Admin)</span>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <span className="px-2.5 py-1 rounded-xl bg-blue-500/20 border border-blue-500/40 text-blue-300 font-mono text-[11px]">
+                Students: <strong>*.ac.in</strong>
+              </span>
+              <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-mono text-[11px]">
+                Faculty: <strong>*gwalior.in</strong>
+              </span>
+              <span className="px-2.5 py-1 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-[11px]">
+                Admin: <strong>*gwalior.in</strong>
+              </span>
+            </div>
+            <p className="text-[10px] text-rose-300/80 mt-1.5 font-medium">
+              ⚠ Personal emails (@gmail.com, etc.) are strictly prohibited.
             </p>
           </div>
 
@@ -699,11 +782,47 @@ export default function Login({ onLoginSuccess }) {
               </button>
             </div>
 
-            <p className="text-xs text-slate-400 mb-4">
-              Select your authenticated MITS College account to proceed with single sign-on:
+            <p className="text-xs text-slate-400 mb-3">
+              Only verified institutional accounts ending in <span className="text-blue-400 font-mono font-bold">.ac.in</span> (Students) or <span className="text-emerald-400 font-mono font-bold">gwalior.in</span> (Faculty) are permitted:
             </p>
 
-            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+            {/* Custom Google Email Input to test any institutional or non-institutional email */}
+            <form onSubmit={handleCustomGoogleSubmit} className="mb-4 p-3 rounded-2xl bg-slate-900 border border-slate-800 space-y-2">
+              <label className="block text-[11px] font-semibold text-slate-300">
+                Sign in with other Google email:
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={customGoogleEmail}
+                  onChange={(e) => {
+                    setCustomGoogleEmail(e.target.value);
+                    setCustomGoogleError('');
+                  }}
+                  placeholder="name@mitsgwl.ac.in or prof@mitsgwalior.in"
+                  className="flex-1 px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-mono outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shrink-0 transition"
+                >
+                  Verify
+                </button>
+              </div>
+
+              {customGoogleError && (
+                <div className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[11px] flex items-start gap-1.5 animate-fadeIn">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400 mt-0.5" />
+                  <span>{customGoogleError}</span>
+                </div>
+              )}
+            </form>
+
+            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+              Or select verified demo profile:
+            </div>
+
+            <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
               {googleAccounts.map((acc, idx) => (
                 <button
                   key={idx}
