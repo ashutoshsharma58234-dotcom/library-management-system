@@ -775,11 +775,18 @@ export const db = {
   submitBookRequest({ userId, bookId, remarks = '' }) {
     const students = this.getStudents();
     const faculty = this.getFaculty();
-    let user = students.find(s => s.id === userId);
+    let user = students.find(s => s.id === userId || s.enrollment?.toLowerCase() === userId?.toLowerCase() || s.email?.toLowerCase() === userId?.toLowerCase());
     let role = 'STUDENT';
     if (!user) {
-      user = faculty.find(f => f.id === userId);
-      role = 'FACULTY';
+      user = faculty.find(f => f.id === userId || f.email?.toLowerCase() === userId?.toLowerCase() || f.barcode?.toLowerCase() === userId?.toLowerCase());
+      if (user) role = 'FACULTY';
+    }
+    if (!user) {
+      const cur = this.getCurrentUser();
+      if (cur) {
+        user = cur;
+        role = cur.role || 'STUDENT';
+      }
     }
     if (!user) throw new Error('User not found.');
 
@@ -796,13 +803,20 @@ export const db = {
     }
 
     const requests = this.getRequests();
-    const existing = requests.some(r => r.userId === userId && r.bookId === bookId && r.status === 'PENDING');
+    const existing = requests.some(r => 
+      (r.userId === user.id || r.userEnrollment === user.enrollment || r.userEmail === user.email) && 
+      r.bookId === bookId && 
+      r.status === 'PENDING'
+    );
     if (existing) {
       throw new Error(`You already have a pending request for "${book.name}".`);
     }
 
     const transactions = this.getTransactions();
-    const activeIssues = transactions.filter(t => t.userId === userId && (t.status === 'ISSUED' || t.status === 'OVERDUE'));
+    const activeIssues = transactions.filter(t => 
+      (t.userId === user.id || t.userEnrollment === user.enrollment || t.userEmail === user.email) && 
+      (t.status === 'ISSUED' || t.status === 'OVERDUE')
+    );
     const maxLimit = role === 'FACULTY' ? (user.maxLimit || 8) : (user.maxLimit || 4);
     if (activeIssues.length >= maxLimit) {
       throw new Error(`You have reached the maximum active borrowing limit of ${maxLimit} books.`);
@@ -828,11 +842,23 @@ export const db = {
     this.saveRequests(requests);
 
     // Call Supabase
-    if (userId.includes('-') && bookId.includes('-')) {
-      requestService.submitRequest({ studentId: userId, bookId }).catch(e => console.warn(e));
+    if (user.id && bookId && user.id.includes('-') && bookId.includes('-')) {
+      requestService.submitRequest({ studentId: user.id, bookId }).catch(e => console.warn(e));
     }
 
     return newReq;
+  },
+
+  cancelBookRequest(requestId, userId) {
+    const requests = this.getRequests();
+    const reqIndex = requests.findIndex(r => r.id === requestId);
+    if (reqIndex === -1) throw new Error('Request not found.');
+    const req = requests[reqIndex];
+    if (req.status !== 'PENDING') throw new Error('Only pending requests can be cancelled.');
+
+    requests.splice(reqIndex, 1);
+    this.saveRequests(requests);
+    return true;
   },
 
   acceptOnlineRequest(requestId, adminName = 'Admin Superuser') {

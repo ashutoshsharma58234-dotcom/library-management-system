@@ -17,7 +17,16 @@ import {
   X,
   Shield,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Printer,
+  Copy,
+  Check,
+  History,
+  Trash2,
+  Calendar,
+  BookMarked,
+  Info,
+  MapPin
 } from 'lucide-react';
 import { db } from '../services/db';
 
@@ -25,6 +34,8 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
   const [activeTab, setActiveTab] = useState('catalog'); // 'catalog' | 'issued' | 'requests' | 'card'
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [issuedSubTab, setIssuedSubTab] = useState('active'); // 'active' | 'history'
+  const [copiedBarcode, setCopiedBarcode] = useState(false);
 
   // Real-time data from db
   const [books, setBooks] = useState(db.getBooks());
@@ -50,24 +61,54 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
     return unsub;
   }, []);
 
-  // Filter books
+  // Multi-attribute matching for logged in student/faculty
+  const isMatchUser = (itemUserId, itemEnrollment, itemEmail) => {
+    if (!user) return false;
+    const uid = String(user.id || '').toLowerCase();
+    const uenr = String(user.enrollment || '').toLowerCase();
+    const uemail = String(user.email || '').toLowerCase();
+
+    const iid = String(itemUserId || '').toLowerCase();
+    const ienr = String(itemEnrollment || '').toLowerCase();
+    const iemail = String(itemEmail || '').toLowerCase();
+
+    if (uid && (iid === uid || ienr === uid)) return true;
+    if (uenr && (ienr === uenr || iid === uenr)) return true;
+    if (uemail && (iemail === uemail || iid === uemail)) return true;
+    return false;
+  };
+
+  // User's active issued books
+  const myIssuedBooks = transactions.filter(t =>
+    isMatchUser(t.userId, t.userEnrollment, t.userEmail) && (t.status === 'ISSUED' || t.status === 'OVERDUE')
+  );
+
+  // User's past returns
+  const myReturnedBooks = transactions.filter(t =>
+    isMatchUser(t.userId, t.userEnrollment, t.userEmail) && t.status === 'RETURNED'
+  );
+
+  // User's online requests
+  const myRequests = requests.filter(r =>
+    isMatchUser(r.userId, r.userEnrollment, r.userEmail)
+  );
+
+  // Pending and approved request counts
+  const pendingRequests = myRequests.filter(r => r.status === 'PENDING');
+  const approvedRequests = myRequests.filter(r => r.status === 'APPROVED');
+
+  // Filter books in catalog
   const filteredBooks = books.filter(b => {
     const matchesSearch =
       b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       b.author.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      b.subject.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCat = selectedCategory === 'ALL' || b.category.toLowerCase() === selectedCategory.toLowerCase();
+      b.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.barcode && b.barcode.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesCat = selectedCategory === 'ALL' || (b.category && b.category.toLowerCase() === selectedCategory.toLowerCase());
     return matchesSearch && matchesCat;
   });
 
-  // User's active issued books
-  const myIssuedBooks = transactions.filter(t => t.userId === user?.id && (t.status === 'ISSUED' || t.status === 'OVERDUE'));
-  // User's past returns
-  const myReturnedBooks = transactions.filter(t => t.userId === user?.id && t.status === 'RETURNED');
-  // User's online requests
-  const myRequests = requests.filter(r => r.userId === user?.id);
-
-  // Subject categories with counts matching Image 3 layout
+  // Subject categories with counts
   const subjectCategories = [
     { name: 'All Subjects', code: 'ALL', count: books.length },
     { name: 'Science', code: 'Science', count: books.filter(b => b.category === 'Science').length },
@@ -89,13 +130,14 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
 
     try {
       db.submitBookRequest({
-        userId: user.id || 'STU-001',
+        userId: user.id || user.enrollment || 'STU-001',
         bookId: selectedBook.id,
         remarks: requestRemarks || 'Needed for university semester coursework.'
       });
       notify(`Online request for "${selectedBook.name}" submitted to Librarian queue!`, 'success');
       setSelectedBook(null);
       refreshData();
+      setActiveTab('requests'); // Switch to requests tab to view status
     } catch (err) {
       notify(err.message, 'error');
     } finally {
@@ -103,13 +145,32 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
     }
   };
 
+  const handleCancelRequest = (requestId, bookName) => {
+    if (!window.confirm(`Are you sure you want to cancel the request for "${bookName}"?`)) return;
+    try {
+      db.cancelBookRequest(requestId, user?.id);
+      notify(`Request for "${bookName}" has been cancelled.`, 'info');
+      refreshData();
+    } catch (err) {
+      notify(err.message, 'error');
+    }
+  };
+
+  const handleCopyBarcode = () => {
+    const code = user?.barcode || `STU-${user?.enrollment || '0901IT251014'}`;
+    navigator.clipboard?.writeText(code);
+    setCopiedBarcode(true);
+    notify('Barcode number copied to clipboard!', 'success');
+    setTimeout(() => setCopiedBarcode(false), 2500);
+  };
+
   return (
     <div className="min-h-screen bg-[#070e1e] text-slate-100 flex flex-col font-['Plus_Jakarta_Sans',sans-serif]">
-      {/* ---------------- TOP NAVBAR (Matching Image 3) ---------------- */}
+      {/* ---------------- TOP NAVBAR ---------------- */}
       <header className="sticky top-0 z-30 bg-[#0d162d]/95 backdrop-blur-md border-b border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-6">
           {/* Logo */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setActiveTab('catalog')}>
             <img
               src="/assets/logo.png"
               alt="MITS Gwalior LMS Logo"
@@ -128,46 +189,62 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
             </div>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="hidden md:flex items-center gap-1 text-xs font-semibold">
+          {/* Navigation Links (Desktop) */}
+          <nav className="hidden md:flex items-center gap-1.5 text-xs font-semibold">
             <button
               onClick={() => setActiveTab('catalog')}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                activeTab === 'catalog' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:text-white'
+              className={`px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 ${
+                activeTab === 'catalog'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
             >
-              Library Catalog
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>Library Catalog</span>
             </button>
+
             <button
               onClick={() => setActiveTab('issued')}
-              className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
-                activeTab === 'issued' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:text-white'
+              className={`px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 ${
+                activeTab === 'issued'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
             >
+              <BookMarked className="w-3.5 h-3.5" />
               <span>My Issued Books</span>
               {myIssuedBooks.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-blue-600 text-[10px] text-white">
+                <span className="px-1.5 py-0.2 rounded-full bg-blue-500 text-[10px] font-bold text-white">
                   {myIssuedBooks.length}
                 </span>
               )}
             </button>
+
             <button
               onClick={() => setActiveTab('requests')}
-              className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1.5 ${
-                activeTab === 'requests' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:text-white'
+              className={`px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 ${
+                activeTab === 'requests'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
             >
+              <Send className="w-3.5 h-3.5" />
               <span>My Requests</span>
               {myRequests.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-slate-300">
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                  approvedRequests.length > 0 ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-blue-400 border border-blue-500/30'
+                }`}>
                   {myRequests.length}
                 </span>
               )}
             </button>
+
             <button
               onClick={() => setActiveTab('card')}
-              className={`px-3 py-1.5 rounded-lg transition flex items-center gap-1 ${
-                activeTab === 'card' ? 'bg-blue-600/20 text-blue-400' : 'text-slate-400 hover:text-white'
+              className={`px-3.5 py-1.5 rounded-xl transition flex items-center gap-1.5 ${
+                activeTab === 'card'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
             >
               <Barcode className="w-3.5 h-3.5" />
@@ -176,13 +253,16 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
           </nav>
         </div>
 
-        {/* Search bar in header */}
+        {/* Search bar in header (when catalog is active) */}
         <div className="hidden lg:block w-72 relative">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (activeTab !== 'catalog') setActiveTab('catalog');
+            }}
             placeholder="Search books, authors, subjects..."
             className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none focus:border-blue-500"
           />
@@ -202,13 +282,18 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
           <button
             onClick={onToggleTheme}
             className="p-1.5 rounded-xl border border-slate-700 text-slate-400 hover:text-white"
+            title="Toggle theme"
           >
             {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
           </button>
 
           {/* Profile pill */}
-          <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-            <div className="w-8 h-8 rounded-full border border-blue-500/50 overflow-hidden bg-slate-800">
+          <div
+            onClick={() => setActiveTab('card')}
+            className="flex items-center gap-2 pl-2 border-l border-slate-800 cursor-pointer group"
+            title="View Digital Library Card"
+          >
+            <div className="w-8 h-8 rounded-full border border-blue-500/50 overflow-hidden bg-slate-800 group-hover:border-blue-400 transition">
               <img
                 src={user?.avatar || '/assets/ankush photo.jpeg'}
                 alt={user?.name || 'User'}
@@ -219,7 +304,7 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
               />
             </div>
             <div className="text-left hidden sm:block">
-              <div className="text-xs font-bold text-white truncate max-w-[120px]">
+              <div className="text-xs font-bold text-white truncate max-w-[120px] group-hover:text-blue-400 transition">
                 {user?.name || 'Ankush Sharma'}
               </div>
               <div className="text-[10px] text-blue-400 font-mono">
@@ -238,246 +323,707 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
         </div>
       </header>
 
-      {/* ---------------- MAIN BODY ---------------- */}
-      <main className="flex-1 p-4 sm:p-6 lg:p-8 space-y-8 max-w-7xl w-full mx-auto">
-        {/* MOBILE SEARCH BAR */}
-        <div className="lg:hidden relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search books, authors, subjects..."
-            className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none"
-          />
-        </div>
+      {/* ---------------- MOBILE NAVIGATION BAR ---------------- */}
+      <div className="md:hidden bg-[#0a1124] border-b border-slate-800 px-3 py-2 flex items-center justify-between text-xs font-semibold overflow-x-auto gap-2">
+        <button
+          onClick={() => setActiveTab('catalog')}
+          className={`px-3 py-1.5 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
+            activeTab === 'catalog' ? 'bg-blue-600 text-white' : 'text-slate-400'
+          }`}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          <span>Catalog</span>
+        </button>
 
-        {/* SECTION 1: PREVIOUS READING / CURRENTLY ISSUED SHELF (Matching Image 3) */}
-        {myIssuedBooks.length > 0 && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                <Clock className="w-4 h-4 text-blue-400" />
-                <span>Currently Issued & Reading</span>
-              </h3>
-              <span className="text-xs text-blue-400 font-semibold">
-                {myIssuedBooks.length} Active {myIssuedBooks.length === 1 ? 'Book' : 'Books'}
-              </span>
+        <button
+          onClick={() => setActiveTab('issued')}
+          className={`px-3 py-1.5 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
+            activeTab === 'issued' ? 'bg-blue-600 text-white' : 'text-slate-400'
+          }`}
+        >
+          <BookMarked className="w-3.5 h-3.5" />
+          <span>Issued ({myIssuedBooks.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('requests')}
+          className={`px-3 py-1.5 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
+            activeTab === 'requests' ? 'bg-blue-600 text-white' : 'text-slate-400'
+          }`}
+        >
+          <Send className="w-3.5 h-3.5" />
+          <span>Requests ({myRequests.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('card')}
+          className={`px-3 py-1.5 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
+            activeTab === 'card' ? 'bg-blue-600 text-white' : 'text-slate-400'
+          }`}
+        >
+          <Barcode className="w-3.5 h-3.5" />
+          <span>Card</span>
+        </button>
+      </div>
+
+      {/* ---------------- MAIN BODY ---------------- */}
+      <main className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl w-full mx-auto">
+
+        {/* ============================================================== */}
+        {/* TAB 1: LIBRARY CATALOG                                          */}
+        {/* ============================================================== */}
+        {activeTab === 'catalog' && (
+          <div className="space-y-6">
+            {/* MOBILE SEARCH BAR */}
+            <div className="lg:hidden relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search books, authors, subjects..."
+                className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none"
+              />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {myIssuedBooks.map(tx => {
-                const book = books.find(b => b.id === tx.bookId);
-                const isOverdue = tx.status === 'OVERDUE';
-
-                return (
-                  <div
-                    key={tx.id}
-                    className={`p-4 rounded-2xl border flex gap-3.5 items-center transition ${
-                      isOverdue
-                        ? 'bg-rose-950/30 border-rose-800/60'
-                        : 'bg-[#0f172a] border-slate-800 hover:border-slate-700'
-                    }`}
-                  >
-                    <div className="w-16 h-24 rounded-xl overflow-hidden shrink-0 border border-slate-700 bg-slate-800">
-                      <img
-                        src={book?.coverImage || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80'}
-                        alt={tx.bookName}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h4 className="text-xs font-bold text-white truncate" title={tx.bookName}>
-                        {tx.bookName}
-                      </h4>
-                      <div className="text-[11px] text-slate-400 truncate mt-0.5">
-                        Issued: {tx.issueDate}
-                      </div>
-                      <div className={`text-[11px] font-mono mt-1 ${isOverdue ? 'text-rose-400 font-bold' : 'text-amber-400'}`}>
-                        Due: {tx.dueDate}
-                      </div>
-                      {isOverdue && (
-                        <div className="mt-1 text-[10px] font-bold text-rose-400">
-                          Overdue Fine: ₹{tx.fineAmount}
-                        </div>
-                      )}
-                    </div>
+            {/* QUICK STATUS REMINDER BANNER */}
+            {myIssuedBooks.length > 0 && (
+              <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-800/60 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
+                    <Clock className="w-5 h-5" />
                   </div>
-                );
-              })}
+                  <div>
+                    <h4 className="text-xs font-bold text-white">
+                      You have {myIssuedBooks.length} active book {myIssuedBooks.length === 1 ? 'loan' : 'loans'} in your account
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      Track return due dates, penalties, and renewal status in My Issued Books.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveTab('issued')}
+                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shrink-0 transition"
+                >
+                  View Loans →
+                </button>
+              </div>
+            )}
+
+            {/* SUBJECTS FILTER CHIPS */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-amber-400" />
+                  <span>Subjects Section</span>
+                </h3>
+                <span className="text-xs text-slate-400">Select domain to filter</span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {subjectCategories.map(cat => {
+                  const isSelected = selectedCategory === cat.code;
+                  return (
+                    <button
+                      key={cat.code}
+                      onClick={() => setSelectedCategory(cat.code)}
+                      className={`p-3.5 rounded-2xl border text-left transition-all ${
+                        isSelected
+                          ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold shadow-lg shadow-amber-400/20 scale-[1.02]'
+                          : 'bg-[#0f172a] border-slate-800 hover:border-slate-700 text-white'
+                      }`}
+                    >
+                      <div className="text-xs font-bold truncate">{cat.name}</div>
+                      <div className={`text-xs mt-1 font-mono ${isSelected ? 'text-slate-900 font-extrabold' : 'text-slate-400'}`}>
+                        {cat.count} Titles
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* AVAILABLE BOOKS GRID */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Available Library Titles</h3>
+                  <p className="text-xs text-slate-400">
+                    Click any book to view details, verify shelf rack location, and request issue online
+                  </p>
+                </div>
+                <span className="text-xs font-mono text-blue-400">
+                  Showing {filteredBooks.length} Books
+                </span>
+              </div>
+
+              {filteredBooks.length === 0 ? (
+                <div className="p-12 text-center rounded-3xl bg-[#0f172a] border border-slate-800">
+                  <Search className="w-10 h-10 text-slate-500 mx-auto mb-3" />
+                  <h4 className="text-sm font-bold text-white">No books found matching your query</h4>
+                  <p className="text-xs text-slate-400 mt-1">Try searching by title, author, subject, or reset the domain filter.</p>
+                  <button
+                    onClick={() => { setSearchQuery(''); setSelectedCategory('ALL'); }}
+                    className="mt-4 px-4 py-2 rounded-xl bg-blue-600 text-xs font-bold text-white hover:bg-blue-500 transition"
+                  >
+                    Reset Filter
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                  {filteredBooks.map(book => {
+                    const inStock = book.availableQuantity > 0;
+                    const hasActiveLoan = myIssuedBooks.some(t => t.bookId === book.id);
+                    const hasPendingReq = myRequests.some(r => r.bookId === book.id && r.status === 'PENDING');
+
+                    return (
+                      <div
+                        key={book.id}
+                        onClick={() => handleOpenBookModal(book)}
+                        className="bg-[#0f172a] border border-slate-800 hover:border-blue-500 rounded-2xl p-3 shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer flex flex-col justify-between group"
+                      >
+                        <div>
+                          <div className="w-full aspect-[2/3] rounded-xl overflow-hidden mb-2.5 bg-slate-800 relative">
+                            <img
+                              src={book.coverImage}
+                              alt={book.name}
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                            />
+                            <span className={`absolute top-2 right-2 px-1.5 py-0.5 rounded text-[10px] font-bold shadow ${
+                              inStock ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                            }`}>
+                              {inStock ? `${book.availableQuantity} in stock` : 'Out of stock'}
+                            </span>
+
+                            {hasActiveLoan && (
+                              <span className="absolute bottom-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-600 text-white shadow">
+                                Borrowed
+                              </span>
+                            )}
+                            {hasPendingReq && (
+                              <span className="absolute bottom-2 left-2 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500 text-slate-950 shadow">
+                                Requested
+                              </span>
+                            )}
+                          </div>
+
+                          <h4 className="text-xs font-bold text-white truncate" title={book.name}>
+                            {book.name}
+                          </h4>
+                          <p className="text-[11px] text-slate-400 truncate">{book.author}</p>
+                          <div className="text-[10px] text-blue-400 font-mono mt-0.5">{book.subject}</div>
+                        </div>
+
+                        <div className="mt-2.5 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px]">
+                          <span className="font-mono text-slate-400">{book.barcode}</span>
+                          <span className="text-blue-400 font-bold group-hover:translate-x-0.5 transition">
+                            View →
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* SECTION 2: SUBJECTS SECTION (Matching Image 3 chips) */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-              <Layers className="w-4 h-4 text-amber-400" />
-              <span>Subjects Section</span>
-            </h3>
-            <span className="text-xs text-slate-400">Select domain to filter</span>
-          </div>
+        {/* ============================================================== */}
+        {/* TAB 2: MY ISSUED BOOKS                                          */}
+        {/* ============================================================== */}
+        {activeTab === 'issued' && (
+          <div className="space-y-6">
+            {/* Header with stats */}
+            <div className="p-6 rounded-3xl bg-[#0f172a] border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <BookMarked className="w-5 h-5 text-blue-400" />
+                  <span>My Issued Books & Loan Records</span>
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  View your currently borrowed textbooks, due dates, renewal windows, and return history.
+                </p>
+              </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {subjectCategories.map(cat => {
-              const isSelected = selectedCategory === cat.code;
-              return (
+              {/* Sub-tab switcher */}
+              <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
                 <button
-                  key={cat.code}
-                  onClick={() => setSelectedCategory(cat.code)}
-                  className={`p-3.5 rounded-2xl border text-left transition-all ${
-                    isSelected
-                      ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold shadow-lg shadow-amber-400/20 scale-[1.02]'
-                      : 'bg-[#0f172a] border-slate-800 hover:border-slate-700 text-white'
+                  onClick={() => setIssuedSubTab('active')}
+                  className={`px-3 py-1.5 rounded-lg transition ${
+                    issuedSubTab === 'active' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  <div className="text-xs font-bold truncate">{cat.name}</div>
-                  <div className={`text-xs mt-1 font-mono ${isSelected ? 'text-slate-900 font-extrabold' : 'text-slate-400'}`}>
-                    {cat.count} Titles
-                  </div>
+                  Active Loans ({myIssuedBooks.length})
                 </button>
-              );
-            })}
-          </div>
-        </div>
+                <button
+                  onClick={() => setIssuedSubTab('history')}
+                  className={`px-3 py-1.5 rounded-lg transition ${
+                    issuedSubTab === 'history' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Return History ({myReturnedBooks.length})
+                </button>
+              </div>
+            </div>
 
-        {/* SECTION 3: BOOKS COLLECTION / POPULAR BOOKS (Matching Image 3) */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-bold text-white">Available Library Titles</h3>
+            {/* ACTIVE LOANS VIEW */}
+            {issuedSubTab === 'active' && (
+              <div>
+                {myIssuedBooks.length === 0 ? (
+                  <div className="p-12 text-center rounded-3xl bg-[#0f172a] border border-slate-800 space-y-4">
+                    <div className="w-16 h-16 rounded-full bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mx-auto">
+                      <BookOpen className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white">No Books Currently Issued</h3>
+                      <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
+                        You have zero active book loans. You can borrow up to {user?.maxLimit || 4} textbooks simultaneously from the MITS Central Library.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('catalog')}
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow-lg shadow-blue-600/20 transition inline-flex items-center gap-2"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      <span>Browse Library Catalog & Request Books</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {myIssuedBooks.map(tx => {
+                      const book = books.find(b => b.id === tx.bookId);
+                      const isOverdue = tx.status === 'OVERDUE';
+
+                      return (
+                        <div
+                          key={tx.id}
+                          className={`p-5 rounded-3xl border transition flex flex-col justify-between ${
+                            isOverdue
+                              ? 'bg-rose-950/20 border-rose-800/60'
+                              : 'bg-[#0f172a] border-slate-800 hover:border-slate-700'
+                          }`}
+                        >
+                          <div className="flex gap-4">
+                            <div className="w-20 h-28 rounded-xl overflow-hidden shrink-0 border border-slate-700 bg-slate-800">
+                              <img
+                                src={book?.coverImage || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80'}
+                                alt={tx.bookName}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase inline-block mb-1.5 ${
+                                isOverdue
+                                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              }`}>
+                                {isOverdue ? 'Overdue' : 'Active Loan'}
+                              </span>
+                              <h4 className="text-sm font-bold text-white leading-tight line-clamp-2" title={tx.bookName}>
+                                {tx.bookName}
+                              </h4>
+                              <p className="text-xs text-slate-400 mt-1 truncate">{book?.author || 'Central Library Title'}</p>
+                              <div className="text-[11px] font-mono text-slate-400 mt-1 flex items-center gap-1">
+                                <Barcode className="w-3 h-3 text-blue-400" />
+                                <span>{tx.bookBarcode}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-2 text-xs">
+                            <div className="flex items-center justify-between text-slate-400">
+                              <span>Issued On:</span>
+                              <span className="font-semibold text-white">{tx.issueDate}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-400">Return Due Date:</span>
+                              <span className={`font-mono font-bold ${isOverdue ? 'text-rose-400' : 'text-amber-400'}`}>
+                                {tx.dueDate}
+                              </span>
+                            </div>
+
+                            {isOverdue && (
+                              <div className="p-2 rounded-xl bg-rose-900/30 border border-rose-800/50 flex items-center justify-between text-xs text-rose-300">
+                                <span>Accrued Fine:</span>
+                                <span className="font-bold font-mono">₹{tx.fineAmount || 190}</span>
+                              </div>
+                            )}
+
+                            <div className="pt-2 text-[11px] text-slate-400 flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                              <span>Return at Central Library Circulation Desk (Rack {book?.shelf || '1st Floor'})</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* RETURN HISTORY VIEW */}
+            {issuedSubTab === 'history' && (
+              <div>
+                {myReturnedBooks.length === 0 ? (
+                  <div className="p-12 text-center rounded-3xl bg-[#0f172a] border border-slate-800">
+                    <History className="w-10 h-10 text-slate-500 mx-auto mb-3" />
+                    <h3 className="text-sm font-bold text-white">No Past Return History</h3>
+                    <p className="text-xs text-slate-400 mt-1">Returned books and clearance receipts will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {myReturnedBooks.map(tx => (
+                      <div
+                        key={tx.id}
+                        className="p-4 rounded-2xl bg-[#0f172a] border border-slate-800 flex items-center justify-between gap-4 text-xs"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                            <CheckCircle2 className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-white text-sm">{tx.bookName}</h4>
+                            <p className="text-slate-400 font-mono text-[11px]">{tx.bookBarcode}</p>
+                            <p className="text-slate-400 text-[11px] mt-0.5">
+                              Issued: {tx.issueDate} • Returned: {tx.actualReturnDate || 'Returned'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase">
+                            Returned • No Dues
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* TAB 3: MY REQUESTS                                              */}
+        {/* ============================================================== */}
+        {activeTab === 'requests' && (
+          <div className="space-y-6">
+            <div className="p-6 rounded-3xl bg-[#0f172a] border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Send className="w-5 h-5 text-blue-400" />
+                  <span>My Online Book Issue Requests</span>
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Track the real-time status of books you requested online. Once approved, pick up your copy at the circulation desk.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setActiveTab('catalog')}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition flex items-center gap-2 shadow-lg shadow-blue-600/20"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>Request New Book</span>
+              </button>
+            </div>
+
+            {/* Workflow steps banner */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-start gap-3">
+                <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center shrink-0 text-xs">1</span>
+                <div>
+                  <div className="font-bold text-white">Online Request</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">Submit request from library catalog.</div>
+                </div>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-start gap-3">
+                <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center shrink-0 text-xs">2</span>
+                <div>
+                  <div className="font-bold text-white">Librarian Approval</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">Librarian verifies rack stock and reserves book.</div>
+                </div>
+              </div>
+              <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-start gap-3">
+                <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center shrink-0 text-xs">3</span>
+                <div>
+                  <div className="font-bold text-white">Desk Pickup</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">Scan your Digital Pass & collect book.</div>
+                </div>
+              </div>
+            </div>
+
+            {myRequests.length === 0 ? (
+              <div className="p-12 text-center rounded-3xl bg-[#0f172a] border border-slate-800 space-y-4">
+                <div className="w-16 h-16 rounded-full bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mx-auto">
+                  <Send className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">No Online Requests Submitted</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
+                    You haven't requested any books online yet. Browse the central catalog to request titles directly to your account.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActiveTab('catalog')}
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow-lg shadow-blue-600/20 transition inline-flex items-center gap-2"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  <span>Browse Catalog & Request Books</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {myRequests.map(req => {
+                  const book = books.find(b => b.id === req.bookId);
+                  const isPending = req.status === 'PENDING';
+                  const isApproved = req.status === 'APPROVED';
+                  const isRejected = req.status === 'REJECTED';
+
+                  return (
+                    <div
+                      key={req.id}
+                      className="p-5 rounded-3xl bg-[#0f172a] border border-slate-800 hover:border-slate-700 transition flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-16 h-24 rounded-xl overflow-hidden shrink-0 border border-slate-700 bg-slate-800">
+                          <img
+                            src={book?.coverImage || 'https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&w=400&q=80'}
+                            alt={req.bookName}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
+                              isApproved
+                                ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                : isRejected
+                                ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                            }`}>
+                              {req.status}
+                            </span>
+                            <span className="text-[11px] text-slate-400 font-mono">ID: {req.id}</span>
+                          </div>
+
+                          <h4 className="text-sm font-bold text-white">{req.bookName}</h4>
+                          <p className="text-xs text-slate-400 mt-0.5">Author: {book?.author || 'MITS Library'}</p>
+                          <p className="text-[11px] text-blue-400 font-mono mt-0.5">
+                            Barcode: {req.bookBarcode} • Shelf: {book?.shelf || 'Central Reading Room'}
+                          </p>
+                          <p className="text-[11px] text-slate-400 mt-1">Requested on: {req.requestDate}</p>
+
+                          {req.remarks && (
+                            <p className="text-[11px] text-slate-300 italic mt-1 bg-slate-900/60 px-2 py-1 rounded-lg border border-slate-800">
+                              Remarks: "{req.remarks}"
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col md:items-end gap-2 shrink-0 w-full md:w-auto">
+                        {isApproved && (
+                          <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs">
+                            <div className="font-bold flex items-center gap-1.5">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                              <span>Ready for Physical Pickup!</span>
+                            </div>
+                            <p className="text-[11px] text-emerald-200/80 mt-1">
+                              Present your Digital Card at the Circulation Desk.
+                            </p>
+                          </div>
+                        )}
+
+                        {isPending && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-amber-400 flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>Under review by Librarian</span>
+                            </span>
+                            <button
+                              onClick={() => handleCancelRequest(req.id, req.bookName)}
+                              className="px-3 py-1.5 rounded-xl border border-rose-500/40 hover:bg-rose-500/10 text-rose-400 text-xs font-semibold transition flex items-center gap-1"
+                              title="Cancel Request"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Cancel</span>
+                            </button>
+                          </div>
+                        )}
+
+                        {isRejected && (
+                          <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs">
+                            <span className="font-bold">Request Rejected:</span>
+                            <p className="text-[11px] mt-0.5 text-rose-200/80">
+                              {req.remarks || 'Stock reserved or borrower active quota exceeded.'}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* TAB 4: DIGITAL LIBRARY CARD                                     */}
+        {/* ============================================================== */}
+        {activeTab === 'card' && (
+          <div className="space-y-6 max-w-2xl mx-auto">
+            <div className="text-center space-y-1">
+              <h2 className="text-xl font-bold text-white flex items-center justify-center gap-2">
+                <Barcode className="w-5 h-5 text-blue-400" />
+                <span>MITS Digital Library Identity Pass</span>
+              </h2>
               <p className="text-xs text-slate-400">
-                Click any book to view details, verify shelf rack location, and request issue online
+                Official digital borrower credential for Madhav Institute of Technology & Science, Gwalior
               </p>
             </div>
-            <span className="text-xs font-mono text-blue-400">
-              Showing {filteredBooks.length} Books
-            </span>
-          </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {filteredBooks.map(book => {
-              const inStock = book.availableQuantity > 0;
-              const hasActiveIssue = myIssuedBooks.some(t => t.bookId === book.id);
+            {/* High-Fidelity Digital Pass Card */}
+            <div className="relative rounded-3xl bg-gradient-to-br from-[#0c142c] via-[#101c3d] to-[#0a0f24] border-2 border-blue-500/40 p-6 sm:p-8 shadow-2xl shadow-blue-900/30 overflow-hidden">
+              {/* Background watermark emblem */}
+              <div className="absolute -right-8 -bottom-8 w-60 h-60 opacity-5 pointer-events-none">
+                <img src="/assets/logo.png" alt="Emblem Watermark" className="w-full h-full object-contain" />
+              </div>
 
-              return (
-                <div
-                  key={book.id}
-                  onClick={() => handleOpenBookModal(book)}
-                  className="bg-[#0f172a] border border-slate-800 hover:border-blue-500 rounded-2xl p-3 shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer flex flex-col justify-between group"
+              {/* Pass Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-blue-500/30">
+                <div className="flex items-center gap-3">
+                  <img
+                    src="/assets/logo.png"
+                    alt="MITS Logo"
+                    className="w-12 h-12 object-contain rounded-full border border-blue-400/50 shadow-md"
+                  />
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-extrabold text-white tracking-wider uppercase">
+                      MADHAV INSTITUTE OF TECH & SCIENCE
+                    </h3>
+                    <p className="text-[10px] text-blue-400 font-bold tracking-widest uppercase">
+                      CENTRAL LIBRARY • OFFICIAL DIGITAL PASS
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 uppercase inline-flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>ACTIVE</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Pass Body: User details & Photo */}
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 my-6">
+                <div className="w-24 h-28 rounded-2xl overflow-hidden border-2 border-blue-400/60 shadow-lg bg-slate-800 shrink-0">
+                  <img
+                    src={user?.avatar || '/assets/ankush photo.jpeg'}
+                    alt={user?.name || 'Student'}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.src = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80';
+                    }}
+                  />
+                </div>
+
+                <div className="flex-1 text-center sm:text-left space-y-1.5">
+                  <div className="text-lg font-extrabold text-white">
+                    {user?.name || 'Ankush Sharma'}
+                  </div>
+                  <div className="text-xs font-mono text-blue-300 font-semibold">
+                    Enrollment: {user?.enrollment || '0901IT251014'}
+                  </div>
+                  <div className="text-xs text-slate-300">
+                    Department: {user?.department || 'Information Technology'}
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Category: <span className="font-semibold text-white">{user?.role === 'FACULTY' ? 'Faculty Member' : 'Undergraduate Student'}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 truncate">
+                    Institute Email: <span className="text-blue-400 font-mono">{user?.email || 'student@mitsgwl.ac.in'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Barcode representation */}
+              <div className="p-4 rounded-2xl bg-white text-slate-900 text-center font-mono shadow-inner">
+                {/* Visual SVG Barcode bars */}
+                <div className="h-12 flex items-center justify-center gap-1 overflow-hidden tracking-widest font-bold select-none">
+                  <span className="w-1 h-12 bg-black inline-block"></span>
+                  <span className="w-0.5 h-12 bg-black inline-block"></span>
+                  <span className="w-2 h-12 bg-black inline-block"></span>
+                  <span className="w-1 h-12 bg-black inline-block"></span>
+                  <span className="w-0.5 h-12 bg-black inline-block"></span>
+                  <span className="w-1.5 h-12 bg-black inline-block"></span>
+                  <span className="w-0.5 h-12 bg-black inline-block"></span>
+                  <span className="w-2 h-12 bg-black inline-block"></span>
+                  <span className="w-1 h-12 bg-black inline-block"></span>
+                  <span className="w-0.5 h-12 bg-black inline-block"></span>
+                  <span className="w-2 h-12 bg-black inline-block"></span>
+                  <span className="w-1 h-12 bg-black inline-block"></span>
+                  <span className="w-1.5 h-12 bg-black inline-block"></span>
+                  <span className="w-0.5 h-12 bg-black inline-block"></span>
+                  <span className="w-2 h-12 bg-black inline-block"></span>
+                  <span className="w-1 h-12 bg-black inline-block"></span>
+                  <span className="w-0.5 h-12 bg-black inline-block"></span>
+                  <span className="w-1.5 h-12 bg-black inline-block"></span>
+                  <span className="w-2 h-12 bg-black inline-block"></span>
+                  <span className="w-0.5 h-12 bg-black inline-block"></span>
+                  <span className="w-1 h-12 bg-black inline-block"></span>
+                  <span className="w-2 h-12 bg-black inline-block"></span>
+                  <span className="w-0.5 h-12 bg-black inline-block"></span>
+                  <span className="w-1 h-12 bg-black inline-block"></span>
+                </div>
+                <div className="text-xs font-bold tracking-widest mt-1 text-slate-900">
+                  {user?.barcode || `STU-${user?.enrollment || '0901IT251014'}`}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="mt-5 pt-4 border-t border-blue-500/30 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <button
+                  onClick={handleCopyBarcode}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold flex items-center gap-2 border border-slate-700 transition"
                 >
-                  <div>
-                    <div className="w-full aspect-[2/3] rounded-xl overflow-hidden mb-2.5 bg-slate-800 relative">
-                      <img
-                        src={book.coverImage}
-                        alt={book.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                      />
-                      <span className={`absolute top-2 right-2 px-1.5 py-0.5 rounded text-[10px] font-bold shadow ${
-                        inStock ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
-                      }`}>
-                        {inStock ? `${book.availableQuantity} in stock` : 'Out of stock'}
-                      </span>
-                    </div>
+                  {copiedBarcode ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  <span>{copiedBarcode ? 'Copied Barcode!' : 'Copy Barcode ID'}</span>
+                </button>
 
-                    <h4 className="text-xs font-bold text-white truncate" title={book.name}>
-                      {book.name}
-                    </h4>
-                    <p className="text-[11px] text-slate-400 truncate">{book.author}</p>
-                    <div className="text-[10px] text-blue-400 font-mono mt-0.5">{book.subject}</div>
-                  </div>
+                <button
+                  onClick={() => window.print()}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold flex items-center gap-2 shadow-lg shadow-blue-600/30 transition"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Print Digital Pass</span>
+                </button>
+              </div>
+            </div>
 
-                  <div className="mt-2.5 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px]">
-                    <span className="font-mono text-slate-400">{book.barcode}</span>
-                    <span className="text-blue-400 font-bold group-hover:translate-x-0.5 transition">
-                      View →
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* SECTION 4: MY ONLINE REQUESTS (TAB OR ACCORDION) */}
-        {myRequests.length > 0 && (
-          <div className="p-5 rounded-3xl bg-[#0f172a] border border-slate-800 space-y-3">
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Send className="w-4 h-4 text-blue-400" />
-              <span>My Submitted Online Issue Requests</span>
-            </h3>
-
-            <div className="space-y-2">
-              {myRequests.map(req => (
-                <div key={req.id} className="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3 text-xs">
-                  <div>
-                    <span className="font-bold text-white">{req.bookName}</span>
-                    <span className="text-slate-400 font-mono text-[11px] ml-2">({req.bookBarcode})</span>
-                    <div className="text-[11px] text-slate-400">Requested on: {req.requestDate}</div>
-                  </div>
-                  <div className="text-right">
-                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                      req.status === 'APPROVED'
-                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                        : req.status === 'REJECTED'
-                        ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                        : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                    }`}>
-                      {req.status}
-                    </span>
-                    {req.status === 'APPROVED' && (
-                      <div className="text-[10px] text-emerald-400 mt-1">Ready for pickup at counter</div>
-                    )}
-                    {req.status === 'REJECTED' && req.rejectionReason && (
-                      <div className="text-[10px] text-rose-400 mt-1">Reason: {req.rejectionReason}</div>
-                    )}
-                  </div>
-                </div>
-              ))}
+            {/* Library Regulations & Card Guidelines */}
+            <div className="p-5 rounded-3xl bg-[#0f172a] border border-slate-800 space-y-3 text-xs">
+              <h4 className="font-bold text-white flex items-center gap-2 text-sm">
+                <Info className="w-4 h-4 text-blue-400" />
+                <span>MITS Library Borrowing Regulations</span>
+              </h4>
+              <ul className="space-y-1.5 text-slate-300 list-disc list-inside">
+                <li>Present this digital barcode pass at the circulation desk for instantaneous book checkouts.</li>
+                <li>Students can borrow up to <strong className="text-white">4 books</strong> simultaneously for a standard duration of <strong className="text-white">14 days</strong>.</li>
+                <li>Faculty members can borrow up to <strong className="text-white">8 books</strong> for <strong className="text-white">30 days</strong>.</li>
+                <li>Overdue books incur a fine of <strong className="text-amber-400">₹5 per day</strong> after the due date.</li>
+                <li>Email reminders are automatically sent 7 days and 1 day prior to the return due date.</li>
+              </ul>
             </div>
           </div>
         )}
 
-        {/* SECTION 5: DIGITAL LIBRARY CARD (TAB: card) */}
-        {activeTab === 'card' && (
-          <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-950/60 to-indigo-950/60 border border-blue-800/50 max-w-lg mx-auto shadow-2xl">
-            <div className="flex items-center justify-between pb-3 border-b border-blue-800/60 mb-4">
-              <div>
-                <span className="text-[10px] font-bold tracking-widest text-blue-400 uppercase">MADHAV INSTITUTE OF TECHNOLOGY & SCIENCE</span>
-                <h4 className="text-base font-extrabold text-white">Digital Library Pass</h4>
-              </div>
-              <img src="/assets/logo.png" alt="Logo" className="w-10 h-10 object-contain" />
-            </div>
-
-            <div className="flex items-center gap-4 mb-4">
-              <img
-                src={user?.avatar || '/assets/ankush photo.jpeg'}
-                alt={user?.name}
-                className="w-16 h-16 rounded-2xl object-cover border-2 border-blue-400/50"
-              />
-              <div>
-                <h4 className="text-sm font-bold text-white">{user?.name}</h4>
-                <p className="text-xs text-blue-300 font-mono">ID: {user?.enrollment || user?.id}</p>
-                <p className="text-xs text-slate-400">{user?.department || 'Information Technology'}</p>
-                <p className="text-[11px] text-emerald-400 font-semibold mt-0.5">Status: ACTIVE BORROWER</p>
-              </div>
-            </div>
-
-            {/* Render Barcode graphic */}
-            <div className="p-4 rounded-xl bg-white text-slate-900 text-center font-mono">
-              <div className="h-10 flex items-center justify-center gap-1 overflow-hidden tracking-widest font-bold">
-                || | |||| | ||| || |||| | || |||| | |||
-              </div>
-              <div className="text-xs font-bold tracking-wider mt-1 text-slate-800">
-                {user?.barcode || 'STU-0901-IT014'}
-              </div>
-            </div>
-            <p className="text-[11px] text-center text-slate-400 mt-2">
-              Present this barcode at the circulation desk for instantaneous book checkouts.
-            </p>
-          </div>
-        )}
       </main>
 
       {/* ---------------- BOOK DETAIL / ONLINE REQUEST MODAL ---------------- */}
@@ -508,7 +1054,10 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
               <div className="flex-1 min-w-0">
                 <h3 className="text-base font-bold text-white leading-tight">{selectedBook.name}</h3>
                 <p className="text-xs text-slate-400 mt-1">By {selectedBook.author}</p>
-                <p className="text-xs text-slate-300 mt-2 font-mono">Shelf: {selectedBook.shelf}</p>
+                <p className="text-xs text-slate-300 mt-2 font-mono flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-blue-400" />
+                  <span>{selectedBook.shelf || 'Central Reading Room'}</span>
+                </p>
                 <div className="mt-2 text-xs">
                   <span className={`font-bold ${selectedBook.availableQuantity > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {selectedBook.availableQuantity > 0 ? `${selectedBook.availableQuantity} Copies Available` : 'Out of Stock'}
