@@ -57,6 +57,8 @@ export default function AdminDashboard({ user, onLogout, onSwitchRole, isDarkMod
   const [historyMethodFilter, setHistoryMethodFilter] = useState('ALL');
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategoryFilter, setCatalogCategoryFilter] = useState('ALL');
+  const [requestSubTab, setRequestSubTab] = useState('issue'); // 'issue' | 'return'
+  const [selectedBookForHistory, setSelectedBookForHistory] = useState('ALL');
 
   // Modals state
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
@@ -153,6 +155,27 @@ export default function AdminDashboard({ user, onLogout, onSwitchRole, isDarkMod
     }
   };
 
+  // Return Request approval & physical desk confirmation
+  const handleApproveReturnRequest = (requestId, bookName, studentName) => {
+    try {
+      db.approveReturnRequest(requestId, user?.name || 'Admin Superuser');
+      notify(`Return request for "${bookName}" APPROVED. Student notified to submit physical book at library desk.`, 'success');
+      refreshAllData();
+    } catch (err) {
+      notify(err.message, 'error');
+    }
+  };
+
+  const handleConfirmDeskReturn = (transactionId, bookName, studentName) => {
+    try {
+      db.confirmPhysicalBookReturn(transactionId, user?.name || 'Admin Superuser');
+      notify(`Physical book submission for "${bookName}" confirmed! Stock updated (+1) and return completed.`, 'success');
+      refreshAllData();
+    } catch (err) {
+      notify(err.message, 'error');
+    }
+  };
+
   // Delete book handler
   const handleDeleteBook = (book) => {
     setConfirmModalData({
@@ -199,6 +222,10 @@ export default function AdminDashboard({ user, onLogout, onSwitchRole, isDarkMod
     return matchesSearch && matchesCat;
   });
 
+  const issueRequestsList = requests.filter(r => r.type !== 'RETURN');
+  const returnRequestsList = requests.filter(r => r.type === 'RETURN');
+  const pendingIssueRequests = issueRequestsList.filter(r => r.status === 'PENDING');
+  const pendingReturnRequests = returnRequestsList.filter(r => r.status === 'PENDING');
   const pendingRequestsList = requests.filter(r => r.status === 'PENDING');
   const currentlyIssuedList = transactions.filter(t => t.status === 'ISSUED' || t.status === 'OVERDUE');
 
@@ -330,7 +357,7 @@ export default function AdminDashboard({ user, onLogout, onSwitchRole, isDarkMod
             }`}
           >
             <History className="w-4 h-4 shrink-0" />
-            <span>Transaction History</span>
+            <span>Book History</span>
           </button>
 
           <button
@@ -984,6 +1011,18 @@ export default function AdminDashboard({ user, onLogout, onSwitchRole, isDarkMod
                           <button
                             type="button"
                             onClick={() => {
+                              setSelectedBookForHistory(book.id);
+                              setActiveTab('history');
+                            }}
+                            title="View Complete Book History"
+                            className="px-2 py-1 rounded-lg bg-blue-500/10 text-blue-500 hover:bg-blue-600 hover:text-white text-[11px] font-bold flex items-center gap-1 transition"
+                          >
+                            <History className="w-3 h-3" />
+                            <span>History</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
                               setSelectedBookForEdit(book);
                               setIsBookModalOpen(true);
                             }}
@@ -1009,123 +1048,292 @@ export default function AdminDashboard({ user, onLogout, onSwitchRole, isDarkMod
             </div>
           )}
 
-          {/* TAB 3: ONLINE REQUESTS QUEUE (BOX 6 METHOD 2) */}
+          {/* TAB 3: ONLINE REQUESTS QUEUE (ISSUE REQUESTS & RETURN REQUESTS) */}
           {activeTab === 'requests' && (
             <div className="space-y-6 animate-fadeIn">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">Online Book Issue Requests Queue</h3>
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white">Online Requests Queue</h3>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Students forget their physical cards or reserve books online. Review, verify stock, and approve or reject.
+                    Review and approve online book issue requests and student return requests before physical desk collection.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="px-3 py-1.5 rounded-xl bg-blue-500/10 text-blue-500 text-xs font-bold">
-                    {pendingRequestsList.length} Pending Approval
+                    {pendingRequestsList.length} Total Pending Approval
                   </span>
                 </div>
               </div>
 
-              <div className="bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-semibold text-[11px]">
-                        <th className="pb-3">Request ID</th>
-                        <th className="pb-3">Student Name</th>
-                        <th className="pb-3">Enrollment / Email</th>
-                        <th className="pb-3">Requested Book</th>
-                        <th className="pb-3">Request Date</th>
-                        <th className="pb-3">Status</th>
-                        <th className="pb-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                      {requests.length === 0 ? (
-                        <tr>
-                          <td colSpan="7" className="py-8 text-center text-slate-400 text-xs">
-                            No book issue requests submitted yet.
-                          </td>
-                        </tr>
-                      ) : (
-                        requests.map(req => {
-                          const book = books.find(b => b.id === req.bookId);
-                          const isPending = req.status === 'PENDING';
-                          const inStock = book && book.availableQuantity > 0;
+              {/* Sub-tabs toggle: Issue Requests vs Return Requests */}
+              <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+                <button
+                  type="button"
+                  onClick={() => setRequestSubTab('issue')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                    requestSubTab === 'issue'
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>Online Book Issue Requests</span>
+                  {pendingIssueRequests.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-rose-500 text-[10px] text-white font-bold">
+                      {pendingIssueRequests.length}
+                    </span>
+                  )}
+                </button>
 
-                          return (
-                            <tr key={req.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition">
-                              <td className="py-3.5 font-mono text-slate-500 dark:text-slate-400">
-                                {req.id}
-                              </td>
-                              <td className="py-3.5 font-bold text-slate-900 dark:text-white">
-                                {req.userName}
-                              </td>
-                              <td className="py-3.5">
-                                <div className="font-mono text-blue-500">{req.userEnrollment}</div>
-                                <div className="text-[11px] text-slate-400">{req.userEmail}</div>
-                              </td>
-                              <td className="py-3.5">
-                                <div className="font-bold text-slate-900 dark:text-white">{req.bookName}</div>
-                                <div className="text-[11px] font-mono text-slate-400">
-                                  {req.bookBarcode} • Stock: {book?.availableQuantity ?? 0}
-                                </div>
-                              </td>
-                              <td className="py-3.5 text-slate-600 dark:text-slate-300">
-                                {req.requestDate}
-                              </td>
-                              <td className="py-3.5">
-                                <span
-                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                                    req.status === 'APPROVED'
-                                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-                                      : req.status === 'REJECTED'
-                                      ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                                      : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                                  }`}
-                                >
-                                  {req.status}
-                                </span>
-                              </td>
-                              <td className="py-3.5 text-right">
-                                {isPending ? (
-                                  <div className="flex items-center justify-end gap-2">
-                                    <button
-                                      type="button"
-                                      disabled={!inStock}
-                                      onClick={() => handleAcceptRequest(req.id, req.bookName, req.userName)}
-                                      className={`px-3 py-1.5 rounded-xl text-xs font-bold text-white flex items-center gap-1 transition ${
-                                        inStock
-                                          ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
-                                          : 'bg-slate-700 cursor-not-allowed opacity-50'
-                                      }`}
-                                    >
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>Accept</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setRejectingRequest(req);
-                                      }}
-                                      className="px-3 py-1.5 rounded-xl border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 text-xs font-bold flex items-center gap-1 transition"
-                                    >
-                                      <XCircle className="w-3.5 h-3.5" />
-                                      <span>Reject</span>
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <span className="text-[11px] text-slate-400">Processed</span>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setRequestSubTab('return')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                    requestSubTab === 'return'
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Student Book Return Requests</span>
+                  {pendingReturnRequests.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-[10px] text-slate-950 font-bold">
+                      {pendingReturnRequests.length}
+                    </span>
+                  )}
+                </button>
               </div>
+
+              {/* VIEW 1: ISSUE REQUESTS TABLE */}
+              {requestSubTab === 'issue' && (
+                <div className="bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-semibold text-[11px]">
+                          <th className="pb-3">Request ID</th>
+                          <th className="pb-3">Student Name</th>
+                          <th className="pb-3">Enrollment / Email</th>
+                          <th className="pb-3">Requested Book</th>
+                          <th className="pb-3">Request Date</th>
+                          <th className="pb-3">Status</th>
+                          <th className="pb-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                        {issueRequestsList.length === 0 ? (
+                          <tr>
+                            <td colSpan="7" className="py-8 text-center text-slate-400 text-xs">
+                              No book issue requests submitted yet.
+                            </td>
+                          </tr>
+                        ) : (
+                          issueRequestsList.map(req => {
+                            const book = books.find(b => b.id === req.bookId);
+                            const isPending = req.status === 'PENDING';
+                            const inStock = book && book.availableQuantity > 0;
+
+                            return (
+                              <tr key={req.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition">
+                                <td className="py-3.5 font-mono text-slate-500 dark:text-slate-400">
+                                  {req.id}
+                                </td>
+                                <td className="py-3.5 font-bold text-slate-900 dark:text-white">
+                                  {req.userName}
+                                </td>
+                                <td className="py-3.5">
+                                  <div className="font-mono text-blue-500">{req.userEnrollment}</div>
+                                  <div className="text-[11px] text-slate-400">{req.userEmail}</div>
+                                </td>
+                                <td className="py-3.5">
+                                  <div className="font-bold text-slate-900 dark:text-white">{req.bookName}</div>
+                                  <div className="text-[11px] font-mono text-slate-400">
+                                    {req.bookBarcode} • Stock: {book?.availableQuantity ?? 0}
+                                  </div>
+                                </td>
+                                <td className="py-3.5 text-slate-600 dark:text-slate-300">
+                                  {req.requestDate}
+                                </td>
+                                <td className="py-3.5">
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                                      req.status === 'APPROVED'
+                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                        : req.status === 'REJECTED'
+                                        ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                        : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                    }`}
+                                  >
+                                    {req.status}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 text-right">
+                                  {isPending ? (
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        disabled={!inStock}
+                                        onClick={() => handleAcceptRequest(req.id, req.bookName, req.userName)}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold text-white flex items-center gap-1 transition ${
+                                          inStock
+                                            ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
+                                            : 'bg-slate-700 cursor-not-allowed opacity-50'
+                                        }`}
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>Accept</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setRejectingRequest(req);
+                                        }}
+                                        className="px-3 py-1.5 rounded-xl border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 text-xs font-bold flex items-center gap-1 transition"
+                                      >
+                                        <XCircle className="w-3.5 h-3.5" />
+                                        <span>Reject</span>
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-400">Processed</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW 2: BOOK RETURN REQUESTS TABLE */}
+              {requestSubTab === 'return' && (
+                <div className="bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm overflow-hidden">
+                  <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 mb-4 text-xs text-indigo-900 dark:text-indigo-300">
+                    <p className="font-bold flex items-center gap-1.5">
+                      <RotateCcw className="w-4 h-4 text-indigo-500 shrink-0" />
+                      <span>Student Return Approval Workflow:</span>
+                    </p>
+                    <p className="text-[11px] mt-0.5 text-slate-600 dark:text-slate-300">
+                      When a student wants to return a book, they submit an online return request. Review and accept it below. Once accepted, the student physically visits the circulation desk to hand in the book. After verifying the book, confirm the physical submission to complete the return and restock inventory (+1).
+                    </p>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-semibold text-[11px]">
+                          <th className="pb-3">Return ID</th>
+                          <th className="pb-3">Student Name</th>
+                          <th className="pb-3">Enrollment / Email</th>
+                          <th className="pb-3">Book Title & Barcode</th>
+                          <th className="pb-3">Request Date</th>
+                          <th className="pb-3">Student Remarks</th>
+                          <th className="pb-3">Status</th>
+                          <th className="pb-3 text-right">Admin Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                        {returnRequestsList.length === 0 ? (
+                          <tr>
+                            <td colSpan="8" className="py-8 text-center text-slate-400 text-xs">
+                              No student return requests submitted yet.
+                            </td>
+                          </tr>
+                        ) : (
+                          returnRequestsList.map(req => {
+                            const isPending = req.status === 'PENDING';
+                            const isApproved = req.status === 'APPROVED';
+                            const isCompleted = req.status === 'COMPLETED';
+
+                            return (
+                              <tr key={req.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition">
+                                <td className="py-3.5 font-mono text-slate-500 dark:text-slate-400">
+                                  {req.id}
+                                </td>
+                                <td className="py-3.5 font-bold text-slate-900 dark:text-white">
+                                  {req.userName}
+                                </td>
+                                <td className="py-3.5">
+                                  <div className="font-mono text-blue-500">{req.userEnrollment}</div>
+                                  <div className="text-[11px] text-slate-400">{req.userEmail}</div>
+                                </td>
+                                <td className="py-3.5">
+                                  <div className="font-bold text-slate-900 dark:text-white">{req.bookName}</div>
+                                  <div className="text-[11px] font-mono text-slate-400">{req.bookBarcode}</div>
+                                </td>
+                                <td className="py-3.5 text-slate-600 dark:text-slate-300">
+                                  {req.requestDate}
+                                </td>
+                                <td className="py-3.5 text-slate-600 dark:text-slate-400 italic">
+                                  "{req.remarks || 'Standard book return'}"
+                                </td>
+                                <td className="py-3.5">
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                                      isApproved
+                                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                        : isCompleted
+                                        ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                                        : req.status === 'REJECTED'
+                                        ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                        : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                    }`}
+                                  >
+                                    {isApproved ? 'Approved • Visit Desk' : req.status}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 text-right">
+                                  {isPending && (
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleApproveReturnRequest(req.id, req.bookName, req.userName)}
+                                        className="px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-600/30 flex items-center gap-1 transition"
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>Accept Return Request</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setRejectingRequest(req)}
+                                        className="px-2.5 py-1.5 rounded-xl border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 text-xs font-bold transition"
+                                      >
+                                        Reject
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  {isApproved && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleConfirmDeskReturn(req.transactionId, req.bookName, req.userName)}
+                                      className="px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/30 flex items-center gap-1.5 ml-auto transition animate-pulse"
+                                      title="Student has physically arrived at the desk with the book"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                      <span>Confirm Physical Book Received</span>
+                                    </button>
+                                  )}
+
+                                  {isCompleted && (
+                                    <span className="text-[11px] text-emerald-500 font-semibold flex items-center justify-end gap-1">
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      <span>Completed at Desk</span>
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1201,6 +1409,666 @@ export default function AdminDashboard({ user, onLogout, onSwitchRole, isDarkMod
                                 <RotateCcw className="w-3.5 h-3.5" />
                                 <span>Acknowledge Return</span>
                               </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: BOOK HISTORY (COMPLETE ISSUING & RETURNING LIFECYCLE) */}
+          {activeTab === 'history' && (
+            <div className="space-y-6 animate-fadeIn">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <History className="w-6 h-6 text-blue-500" />
+                    <span>Book History — Complete Issuing & Returning Records</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Track the complete circulation lifecycle of any book: total times issued, issue and return dates, and borrower student details.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => db.exportToCSV('transactions')}
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 transition"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export History CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Book Selector Bar */}
+              <div className="p-4 rounded-3xl bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-blue-500" />
+                    <span>Select Book to Inspect:</span>
+                  </label>
+                  <select
+                    value={selectedBookForHistory}
+                    onChange={(e) => setSelectedBookForHistory(e.target.value)}
+                    className="w-full sm:max-w-xl px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="ALL">📚 All Books Overview & Master Circulation Ledger</option>
+                    {books.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} (Barcode: {b.barcode} • {b.author})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {selectedBookForHistory !== 'ALL' && (
+                  <button
+                    onClick={() => setSelectedBookForHistory('ALL')}
+                    className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition whitespace-nowrap"
+                  >
+                    ← All Books Overview
+                  </button>
+                )}
+              </div>
+
+              {/* CASE 1: SPECIFIC BOOK HISTORY VIEW */}
+              {selectedBookForHistory !== 'ALL' && (() => {
+                const bookHistory = db.getBookHistory(selectedBookForHistory);
+                const book = bookHistory.book;
+                const bookTxs = bookHistory.transactions || [];
+
+                return (
+                  <div className="space-y-6">
+                    {/* Book Profile & Metrics Card */}
+                    <div className="p-6 rounded-3xl bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 shadow-sm">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-slate-100 dark:border-slate-800">
+                        <div className="flex items-start gap-4">
+                          <div className="w-16 h-20 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 p-0.5 shrink-0 shadow-md flex items-center justify-center overflow-hidden">
+                            {book?.coverImage ? (
+                              <img src={book.coverImage} alt={book?.name} className="w-full h-full object-cover rounded-[10px]" />
+                            ) : (
+                              <BookOpen className="w-8 h-8 text-white/80" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-500 border border-blue-500/20 font-mono">
+                                Barcode: {book?.barcode}
+                              </span>
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                {book?.subject || 'Engineering'}
+                              </span>
+                              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                Shelf: {book?.shelf || 'Central Rack'}
+                              </span>
+                            </div>
+                            <h4 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                              {book?.name}
+                            </h4>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                              By <span className="font-semibold text-slate-700 dark:text-slate-200">{book?.author}</span> • ISBN: {book?.isbn || 'N/A'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Inventory Status badge */}
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Inventory Status</span>
+                            <div className="text-sm font-bold text-slate-900 dark:text-white">
+                              {book?.availableQuantity} Available / {book?.totalQuantity} Total Copies
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 4 History KPI Badges */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-6">
+                        <div className="p-4 rounded-2xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30">
+                          <div className="text-2xl font-black text-blue-600 dark:text-blue-400 font-mono">
+                            {bookHistory.totalIssues}
+                          </div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">
+                            Total Times Issued
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Lifetime circulation count
+                          </div>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/30">
+                          <div className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono">
+                            {bookHistory.activeLoans}
+                          </div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">
+                            Currently On Loan
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Active student checkouts
+                          </div>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30">
+                          <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                            {bookHistory.totalReturns}
+                          </div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">
+                            Returned Copies
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Completed circulation returns
+                          </div>
+                        </div>
+
+                        <div className="p-4 rounded-2xl bg-purple-50/60 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30">
+                          <div className="text-2xl font-black text-purple-600 dark:text-purple-400 font-mono">
+                            {bookHistory.pendingReturnRequests}
+                          </div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">
+                            Pending Desk Returns
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Awaiting student desk visit
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Book Specific Issues & Returns Ledger Table */}
+                    <div className="bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm overflow-hidden">
+                      <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-4">
+                        <div>
+                          <h4 className="text-base font-bold text-slate-900 dark:text-white">
+                            Complete Issuing & Returning History for "{book?.name}"
+                          </h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Detailed record of every student borrower, issue dates, due dates, return dates, and receipt status
+                          </p>
+                        </div>
+                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                          {bookTxs.length} Total Records
+                        </span>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-semibold text-[11px]">
+                              <th className="pb-3">Student / Borrower Details</th>
+                              <th className="pb-3">Issue Date</th>
+                              <th className="pb-3">Due Date</th>
+                              <th className="pb-3">Return Date & Lifecycle</th>
+                              <th className="pb-3">Issue Method</th>
+                              <th className="pb-3">Fine / Penalty</th>
+                              <th className="pb-3 text-right">Circulation Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                            {bookTxs.length === 0 ? (
+                              <tr>
+                                <td colSpan="7" className="py-10 text-center text-slate-400">
+                                  <div className="flex flex-col items-center justify-center gap-2">
+                                    <History className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                                    <span className="font-semibold text-sm">No circulation history for this book yet</span>
+                                    <span className="text-xs text-slate-400">All copies are in stock in the central library.</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            ) : (
+                              bookTxs.map(tx => (
+                                <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition">
+                                  <td className="py-3.5">
+                                    <div className="font-bold text-slate-900 dark:text-white text-xs">
+                                      {tx.userName}
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+                                      {tx.userEnrollment} • {tx.userRole}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 truncate max-w-[180px]">
+                                      {tx.userEmail}
+                                    </div>
+                                  </td>
+                                  <td className="py-3.5">
+                                    <div className="font-semibold text-slate-800 dark:text-slate-200">{tx.issueDate}</div>
+                                    <div className="text-[10px] text-slate-400">Issued by: {tx.issuedBy || 'Librarian'}</div>
+                                  </td>
+                                  <td className="py-3.5 font-mono">
+                                    <span className={tx.status === 'OVERDUE' ? 'text-rose-500 font-bold' : 'text-slate-700 dark:text-slate-300'}>
+                                      {tx.dueDate}
+                                    </span>
+                                  </td>
+                                  <td className="py-3.5">
+                                    {tx.actualReturnDate ? (
+                                      <div>
+                                        <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                          <CheckCircle2 className="w-3.5 h-3.5" />
+                                          Returned: {tx.actualReturnDate}
+                                        </span>
+                                      </div>
+                                    ) : tx.returnStatus === 'APPROVED_VISIT_DESK' ? (
+                                      <div>
+                                        <span className="font-semibold text-amber-500 flex items-center gap-1">
+                                          <Clock className="w-3.5 h-3.5" />
+                                          Visit Desk Approved
+                                        </span>
+                                        <span className="text-[10px] text-slate-400">Student visiting desk</span>
+                                      </div>
+                                    ) : tx.returnStatus === 'PENDING_ADMIN_REVIEW' ? (
+                                      <div>
+                                        <span className="font-semibold text-blue-500 flex items-center gap-1">
+                                          <RotateCcw className="w-3.5 h-3.5" />
+                                          Return Requested
+                                        </span>
+                                        <span className="text-[10px] text-slate-400">Awaiting admin review</span>
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-400 text-xs">Active Loan (Not Returned)</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3.5">
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                      {tx.issueMethod}
+                                    </span>
+                                  </td>
+                                  <td className="py-3.5">
+                                    {tx.fineAmount > 0 ? (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                                        ₹{tx.fineAmount} {tx.finePaid ? '(Paid)' : '(Unpaid)'}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] text-slate-400">₹0 (No Fine)</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3.5 text-right">
+                                    <span
+                                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold inline-flex items-center gap-1 ${
+                                        tx.status === 'RETURNED'
+                                          ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                                          : tx.status === 'OVERDUE'
+                                          ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                                          : 'bg-blue-500/10 text-blue-500 border border-blue-500/20'
+                                      }`}
+                                    >
+                                      {tx.status === 'RETURNED' && <CheckCircle2 className="w-3 h-3" />}
+                                      {tx.status === 'OVERDUE' && <AlertTriangle className="w-3 h-3" />}
+                                      {tx.status === 'ISSUED' && <Clock className="w-3 h-3" />}
+                                      <span>{tx.status}</span>
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* CASE 2: ALL BOOKS SUMMARY & GLOBAL CIRCULATION LEDGER */}
+              {selectedBookForHistory === 'ALL' && (
+                <div className="space-y-6">
+                  {/* Global Circulation Metrics */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-3xl bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 shadow-sm">
+                      <div className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+                        {books.length}
+                      </div>
+                      <div className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-1">
+                        Cataloged Book Titles
+                      </div>
+                      <div className="text-[11px] text-slate-400">Total unique books</div>
+                    </div>
+
+                    <div className="p-4 rounded-3xl bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 shadow-sm">
+                      <div className="text-2xl font-black text-blue-600 dark:text-blue-400 font-mono">
+                        {transactions.length}
+                      </div>
+                      <div className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-1">
+                        Total Issues Recorded
+                      </div>
+                      <div className="text-[11px] text-slate-400">All historical loans</div>
+                    </div>
+
+                    <div className="p-4 rounded-3xl bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 shadow-sm">
+                      <div className="text-2xl font-black text-amber-500 font-mono">
+                        {metrics.currentlyIssued}
+                      </div>
+                      <div className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-1">
+                        Active Loans Out
+                      </div>
+                      <div className="text-[11px] text-slate-400">Currently with borrowers</div>
+                    </div>
+
+                    <div className="p-4 rounded-3xl bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 shadow-sm">
+                      <div className="text-2xl font-black text-emerald-500 font-mono">
+                        {transactions.filter(t => t.status === 'RETURNED').length}
+                      </div>
+                      <div className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-1">
+                        Completed Returns
+                      </div>
+                      <div className="text-[11px] text-slate-400">Returned to circulation</div>
+                    </div>
+                  </div>
+
+                  {/* SECTION 1: BOOKS CIRCULATION FREQUENCY & METRICS TABLE */}
+                  <div className="bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm overflow-hidden">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 gap-3">
+                      <div>
+                        <h4 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <BookOpen className="w-4 h-4 text-blue-500" />
+                          <span>Books Circulation Frequency & Total Issues History</span>
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Select any book below to view its complete historical records, dates, and student borrower details.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto mt-4">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-semibold text-[11px]">
+                            <th className="pb-3">Book Title & Author</th>
+                            <th className="pb-3">Barcode</th>
+                            <th className="pb-3">Stock / Available</th>
+                            <th className="pb-3 text-center">Total Times Issued</th>
+                            <th className="pb-3 text-center">Currently Issued</th>
+                            <th className="pb-3 text-center">Total Returns</th>
+                            <th className="pb-3 text-right">Book History Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                          {db.getAllBooksHistorySummary().map(bookItem => (
+                            <tr key={bookItem.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition">
+                              <td className="py-3.5">
+                                <div className="font-bold text-slate-900 dark:text-white">
+                                  {bookItem.name}
+                                </div>
+                                <div className="text-[11px] text-slate-400">
+                                  {bookItem.author} • {bookItem.subject}
+                                </div>
+                              </td>
+                              <td className="py-3.5 font-mono text-blue-500 font-semibold">
+                                {bookItem.barcode}
+                              </td>
+                              <td className="py-3.5">
+                                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                  {bookItem.availableQuantity} / {bookItem.totalQuantity}
+                                </span>
+                              </td>
+                              <td className="py-3.5 text-center">
+                                <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono">
+                                  {bookItem.totalIssuedCount} times
+                                </span>
+                              </td>
+                              <td className="py-3.5 text-center">
+                                <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                  bookItem.activeLoansCount > 0
+                                    ? 'bg-amber-500/10 text-amber-500'
+                                    : 'text-slate-400'
+                                }`}>
+                                  {bookItem.activeLoansCount} active
+                                </span>
+                              </td>
+                              <td className="py-3.5 text-center">
+                                <span className="text-slate-700 dark:text-slate-300 font-mono">
+                                  {bookItem.returnedCount}
+                                </span>
+                              </td>
+                              <td className="py-3.5 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedBookForHistory(bookItem.id)}
+                                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 ml-auto transition shadow-sm active:scale-95"
+                                >
+                                  <History className="w-3.5 h-3.5" />
+                                  <span>View Book History</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* SECTION 2: MASTER ISSUING & RETURNING CHRONOLOGICAL LOGS */}
+                  <div className="bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm overflow-hidden">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 gap-3">
+                      <div>
+                        <h4 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <History className="w-4 h-4 text-amber-500" />
+                          <span>Global Issuing & Returning Ledger</span>
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Real-time chronological log of all past and current book transactions across students and faculty
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Filter and Search */}
+                    <div className="my-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
+                      <div className="sm:col-span-2 relative">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                        <input
+                          type="text"
+                          value={historySearch}
+                          onChange={(e) => setHistorySearch(e.target.value)}
+                          placeholder="Search by book name, barcode, student name, enrollment..."
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <select
+                          value={historyStatusFilter}
+                          onChange={(e) => setHistoryStatusFilter(e.target.value)}
+                          className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white outline-none"
+                        >
+                          <option value="ALL">All Statuses</option>
+                          <option value="ISSUED">Currently Issued</option>
+                          <option value="OVERDUE">Overdue Notice</option>
+                          <option value="RETURNED">Returned</option>
+                        </select>
+                      </div>
+                      <div>
+                        <select
+                          value={historyMethodFilter}
+                          onChange={(e) => setHistoryMethodFilter(e.target.value)}
+                          className="w-full px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white outline-none"
+                        >
+                          <option value="ALL">All Issue Methods</option>
+                          <option value="BARCODE">Barcode Scan</option>
+                          <option value="ONLINE_REQUEST">Online Request</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Ledger Table */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-semibold text-[11px]">
+                            <th className="pb-2.5">TX ID</th>
+                            <th className="pb-2.5">Book Details</th>
+                            <th className="pb-2.5">Borrower Details</th>
+                            <th className="pb-2.5">Issue Date</th>
+                            <th className="pb-2.5">Due Date</th>
+                            <th className="pb-2.5">Return Date / Status</th>
+                            <th className="pb-2.5 text-right">Inspect Book</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                          {filteredTransactions.length === 0 ? (
+                            <tr>
+                              <td colSpan="7" className="py-8 text-center text-slate-400 text-xs">
+                                No transaction records match your search criteria.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredTransactions.map(tx => (
+                              <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition">
+                                <td className="py-3 font-mono text-slate-500 text-[11px] font-bold">
+                                  {tx.id}
+                                </td>
+                                <td className="py-3">
+                                  <div className="font-bold text-slate-900 dark:text-white">{tx.bookName}</div>
+                                  <div className="text-[11px] font-mono text-blue-500">{tx.bookBarcode}</div>
+                                </td>
+                                <td className="py-3">
+                                  <div className="font-semibold text-slate-900 dark:text-white">{tx.userName}</div>
+                                  <div className="text-[11px] text-slate-400 font-mono">{tx.userEnrollment} • {tx.userRole}</div>
+                                </td>
+                                <td className="py-3 text-slate-700 dark:text-slate-300">
+                                  {tx.issueDate}
+                                </td>
+                                <td className="py-3 font-mono">
+                                  <span className={tx.status === 'OVERDUE' ? 'text-rose-500 font-bold' : 'text-slate-700 dark:text-slate-300'}>
+                                    {tx.dueDate}
+                                  </span>
+                                </td>
+                                <td className="py-3">
+                                  {tx.actualReturnDate ? (
+                                    <span className="text-emerald-500 font-semibold flex items-center gap-1">
+                                      <CheckCircle2 className="w-3.5 h-3.5" />
+                                      {tx.actualReturnDate}
+                                    </span>
+                                  ) : tx.returnStatus === 'APPROVED_VISIT_DESK' ? (
+                                    <span className="text-amber-500 font-semibold flex items-center gap-1">
+                                      <Clock className="w-3.5 h-3.5" />
+                                      Desk Visit Approved
+                                    </span>
+                                  ) : tx.returnStatus === 'PENDING_ADMIN_REVIEW' ? (
+                                    <span className="text-blue-500 font-semibold flex items-center gap-1">
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                      Return Requested
+                                    </span>
+                                  ) : (
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      tx.status === 'OVERDUE'
+                                        ? 'bg-rose-500/20 text-rose-400'
+                                        : 'bg-blue-500/20 text-blue-400'
+                                    }`}>
+                                      {tx.status}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedBookForHistory(tx.bookId);
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 inline-flex items-center gap-1 transition"
+                                  >
+                                    <History className="w-3 h-3 text-blue-500" />
+                                    <span>History</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: AUTOMATED REMINDERS */}
+          {activeTab === 'reminders' && (
+            <div className="space-y-6 animate-fadeIn">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Send className="w-6 h-6 text-blue-500" />
+                    <span>Automated Email Reminders & Fine Scheduler</span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Automated background email dispatches for 7-Day prior reminders, 1-Day final warnings, and overdue fine notices.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleTriggerScheduler}
+                    className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-600/30 transition active:scale-95"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Run Dispatcher Now</span>
+                  </button>
+                  <button
+                    onClick={() => setIsReminderSettingsOpen(true)}
+                    className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center gap-1.5 transition"
+                  >
+                    <Filter className="w-3.5 h-3.5" />
+                    <span>Configure Rules</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Status and Metrics */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-4 rounded-3xl bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 shadow-sm">
+                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">SMTP Service Gateway</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span className="text-base font-bold text-slate-900 dark:text-white">{settings.smtpStatus}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">Host: {settings.smtpHost}:{settings.smtpPort}</div>
+                </div>
+
+                <div className="p-4 rounded-3xl bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 shadow-sm">
+                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Dispatch Logs</div>
+                  <div className="mt-2 text-2xl font-black text-blue-600 dark:text-blue-400 font-mono">{emailLogs.length}</div>
+                  <div className="text-[11px] text-slate-400 mt-1">Automated student notices</div>
+                </div>
+
+                <div className="p-4 rounded-3xl bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 shadow-sm">
+                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Pending Fines</div>
+                  <div className="mt-2 text-2xl font-black text-rose-500 font-mono">₹{metrics.totalPendingFines.toFixed(2)}</div>
+                  <div className="text-[11px] text-slate-400 mt-1">From {metrics.overdueCount} overdue loans</div>
+                </div>
+              </div>
+
+              {/* Full Dispatch Logs Table */}
+              <div className="bg-white dark:bg-[#111936] border border-slate-200 dark:border-slate-800 rounded-3xl p-5 sm:p-6 shadow-sm overflow-hidden">
+                <h4 className="text-base font-bold text-slate-900 dark:text-white mb-3">All Automated Notification Logs</h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-semibold text-[11px]">
+                        <th className="pb-2.5">Timestamp</th>
+                        <th className="pb-2.5">Recipient</th>
+                        <th className="pb-2.5">Student / Borrower</th>
+                        <th className="pb-2.5">Book Title</th>
+                        <th className="pb-2.5">Action / Subject</th>
+                        <th className="pb-2.5 text-right">Delivery Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                      {emailLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan="6" className="py-8 text-center text-slate-400">No automated reminder emails logged yet.</td>
+                        </tr>
+                      ) : (
+                        emailLogs.map(log => (
+                          <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/40 transition">
+                            <td className="py-3 font-mono text-[11px] text-slate-500">{log.timestamp}</td>
+                            <td className="py-3 font-mono text-slate-700 dark:text-slate-300">{log.recipient}</td>
+                            <td className="py-3 font-semibold text-slate-900 dark:text-white">{log.studentName}</td>
+                            <td className="py-3 text-slate-800 dark:text-slate-200">{log.bookName}</td>
+                            <td className="py-3 text-slate-600 dark:text-slate-300">{log.action}</td>
+                            <td className="py-3 text-right">
+                              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                {log.status}
+                              </span>
                             </td>
                           </tr>
                         ))

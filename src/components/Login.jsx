@@ -544,148 +544,144 @@ export default function Login({ onLoginSuccess }) {
                 <span>Sign in with Google</span>
               </button>
 
-              {/* Direct Role Login Toggle */}
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={() => setShowDirectLogin(!showDirectLogin)}
-                  className="text-xs text-blue-400 hover:text-blue-300 font-medium underline underline-offset-4 transition"
-                >
-                  {showDirectLogin ? 'Hide Manual Login Form' : 'Direct Role / Admin Login Fallback'}
-                </button>
+              {/* Divider */}
+              <div className="flex items-center my-2">
+                <div className="flex-1 border-t border-slate-800"></div>
+                <span className="px-3 text-[11px] font-bold text-slate-400 tracking-wider uppercase">
+                  Already Registered Login
+                </span>
+                <div className="flex-1 border-t border-slate-800"></div>
               </div>
 
-              {/* Direct Login Form */}
-              {showDirectLogin && (
-                <div className="pt-4 border-t border-slate-800 animate-fadeIn space-y-3.5">
-                  <div className="flex rounded-xl bg-slate-900/80 p-1 border border-slate-800 text-xs font-semibold">
-                    <button
-                      type="button"
-                      onClick={() => setRoleTab('student')}
-                      className={`flex-1 py-1.5 rounded-lg transition ${
-                        roleTab === 'student' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Student Login
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRoleTab('admin')}
-                      className={`flex-1 py-1.5 rounded-lg transition ${
-                        roleTab === 'admin' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Admin Portal
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRoleTab('faculty')}
-                      className={`flex-1 py-1.5 rounded-lg transition ${
-                        roleTab === 'faculty' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Faculty
-                    </button>
-                  </div>
-
-                  {/* Student Sign In Form */}
-                  {roleTab === 'student' && (
-                    <form onSubmit={handleStudentSignIn} className="space-y-3">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">College Email or Enrollment Number</label>
-                        <input
-                          type="text"
-                          value={studentInput}
-                          onChange={(e) => setStudentInput(e.target.value)}
-                          placeholder="e.g. 0901IT251014 or student@mitsgwl.ac.in"
-                          required
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">Password</label>
-                        <input
-                          type="password"
-                          value={studentPassword}
-                          onChange={(e) => setStudentPassword(e.target.value)}
-                          placeholder="••••••••"
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                        <p className="text-[10px] text-slate-400 mt-1">Default demo: 0901IT251014 (Ankush) or 0901IT251028 (Deepesh)</p>
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition"
-                      >
-                        <GraduationCap className="w-4 h-4" />
-                        <span>{loading ? 'Verifying...' : 'Access Student Dashboard'}</span>
-                      </button>
-                    </form>
-                  )}
-
-                  {/* Admin Sign In Form */}
-                  {roleTab === 'admin' && (
-                    <form onSubmit={handleAdminSignIn} className="space-y-3">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">Admin Email Address</label>
-                        <input
-                          type="email"
-                          value={adminEmail}
-                          onChange={(e) => setAdminEmail(e.target.value)}
-                          placeholder="admin@mitsgwalior.in"
-                          required
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">Admin Password</label>
-                        <input
-                          type="password"
-                          value={adminPassword}
-                          onChange={(e) => setAdminPassword(e.target.value)}
-                          placeholder="••••••••"
-                          required
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                        <p className="text-[10px] text-slate-400 mt-1">Default admin: admin@mitsgwalior.in / admin123</p>
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg transition"
-                      >
-                        <Shield className="w-4 h-4" />
-                        <span>{loading ? 'Authenticating...' : 'Enter Admin Executive Dashboard'}</span>
-                      </button>
-                    </form>
-                  )}
-
-                  {/* Faculty Sign In Form */}
-                  {roleTab === 'faculty' && (
-                    <form onSubmit={handleFacultySignIn} className="space-y-3">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-300 mb-1">Faculty College Email</label>
-                        <input
-                          type="email"
-                          value={facultyEmail}
-                          onChange={(e) => setFacultyEmail(e.target.value)}
-                          placeholder="rajeev.singh@mitsgwalior.in"
-                          required
-                          className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg transition"
-                      >
-                        <span>{loading ? 'Verifying...' : 'Access Faculty Dashboard'}</span>
-                      </button>
-                    </form>
-                  )}
+              {/* Already Registered Sign In Form */}
+              <div className="pt-2 animate-fadeIn space-y-3.5">
+                <div className="flex rounded-xl bg-slate-900/80 p-1 border border-slate-800 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setRoleTab('student')}
+                    className={`flex-1 py-1.5 rounded-lg transition ${
+                      roleTab === 'student' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Student Login
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoleTab('admin')}
+                    className={`flex-1 py-1.5 rounded-lg transition ${
+                      roleTab === 'admin' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Admin Portal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoleTab('faculty')}
+                    className={`flex-1 py-1.5 rounded-lg transition ${
+                      roleTab === 'faculty' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Faculty
+                  </button>
                 </div>
-              )}
+
+                {/* Student Sign In Form */}
+                {roleTab === 'student' && (
+                  <form onSubmit={handleStudentSignIn} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">College Email or Enrollment Number</label>
+                      <input
+                        type="text"
+                        value={studentInput}
+                        onChange={(e) => setStudentInput(e.target.value)}
+                        placeholder="e.g. 0901IT251014 or student@mitsgwl.ac.in"
+                        required
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">Password</label>
+                      <input
+                        type="password"
+                        value={studentPassword}
+                        onChange={(e) => setStudentPassword(e.target.value)}
+                        placeholder="••••••••"
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">Use your registered college student password</p>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition"
+                    >
+                      <GraduationCap className="w-4 h-4" />
+                      <span>{loading ? 'Verifying...' : 'Access Student Dashboard'}</span>
+                    </button>
+                  </form>
+                )}
+
+                {/* Admin Sign In Form */}
+                {roleTab === 'admin' && (
+                  <form onSubmit={handleAdminSignIn} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">Admin Email Address</label>
+                      <input
+                        type="email"
+                        value={adminEmail}
+                        onChange={(e) => setAdminEmail(e.target.value)}
+                        placeholder="admin@mitsgwalior.in"
+                        required
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">Admin Password</label>
+                      <input
+                        type="password"
+                        value={adminPassword}
+                        onChange={(e) => setAdminPassword(e.target.value)}
+                        placeholder="••••••••"
+                        required
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">Authorized library administrator credentials</p>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg transition"
+                    >
+                      <Shield className="w-4 h-4" />
+                      <span>{loading ? 'Authenticating...' : 'Enter Admin Executive Dashboard'}</span>
+                    </button>
+                  </form>
+                )}
+
+                {/* Faculty Sign In Form */}
+                {roleTab === 'faculty' && (
+                  <form onSubmit={handleFacultySignIn} className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">Faculty College Email</label>
+                      <input
+                        type="email"
+                        value={facultyEmail}
+                        onChange={(e) => setFacultyEmail(e.target.value)}
+                        placeholder="rajeev.singh@mitsgwalior.in"
+                        required
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-mono outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg transition"
+                    >
+                      <span>{loading ? 'Verifying...' : 'Access Faculty Dashboard'}</span>
+                    </button>
+                  </form>
+                )}
+              </div>
 
               {/* Quick link to register */}
               <div className="text-center pt-2 border-t border-slate-800">

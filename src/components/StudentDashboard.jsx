@@ -26,7 +26,8 @@ import {
   Calendar,
   BookMarked,
   Info,
-  MapPin
+  MapPin,
+  RotateCcw
 } from 'lucide-react';
 import { db } from '../services/db';
 
@@ -46,6 +47,11 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
   const [selectedBook, setSelectedBook] = useState(null);
   const [requestRemarks, setRequestRemarks] = useState('');
   const [submittingReq, setSubmittingReq] = useState(false);
+
+  // Return request modal
+  const [returnModalTx, setReturnModalTx] = useState(null);
+  const [returnRemarks, setReturnRemarks] = useState('');
+  const [submittingReturn, setSubmittingReturn] = useState(false);
 
   const refreshData = () => {
     setBooks(db.getBooks());
@@ -123,6 +129,11 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
     setRequestRemarks('');
   };
 
+  const handleOpenReturnModal = (tx) => {
+    setReturnModalTx(tx);
+    setReturnRemarks('');
+  };
+
   const handleSendIssueRequest = (e) => {
     e.preventDefault();
     if (!selectedBook) return;
@@ -142,6 +153,27 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
       notify(err.message, 'error');
     } finally {
       setSubmittingReq(false);
+    }
+  };
+
+  const handleSubmitReturnRequest = (e) => {
+    e.preventDefault();
+    if (!returnModalTx) return;
+    setSubmittingReturn(true);
+
+    try {
+      db.submitReturnRequest({
+        transactionId: returnModalTx.id,
+        userId: user?.id || user?.enrollment || 'STU-001',
+        remarks: returnRemarks || 'Completed reading textbook.'
+      });
+      notify(`Book return request for "${returnModalTx.bookName}" submitted! Admin will review and approve.`, 'success');
+      setReturnModalTx(null);
+      refreshData();
+    } catch (err) {
+      notify(err.message, 'error');
+    } finally {
+      setSubmittingReturn(false);
     }
   };
 
@@ -655,6 +687,40 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
                               <MapPin className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                               <span>Return at Central Library Circulation Desk (Rack {book?.shelf || '1st Floor'})</span>
                             </div>
+
+                            {/* Return Request Status or Action */}
+                            <div className="pt-2 border-t border-slate-800">
+                              {tx.returnStatus === 'PENDING_ADMIN_REVIEW' ? (
+                                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-1">
+                                  <div className="font-bold flex items-center gap-1.5">
+                                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                                    <span>Return Request Pending Admin Review</span>
+                                  </div>
+                                  <p className="text-[10px] text-slate-300 leading-snug">
+                                    Submitted {tx.returnRequestDate}. Awaiting Librarian review. Once approved, you will physically visit the desk to submit the book.
+                                  </p>
+                                </div>
+                              ) : tx.returnStatus === 'APPROVED_VISIT_DESK' ? (
+                                <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs space-y-1">
+                                  <div className="font-bold flex items-center gap-1.5">
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                                    <span>Return Request Approved!</span>
+                                  </div>
+                                  <p className="text-[11px] text-emerald-100 font-medium leading-snug">
+                                    Please physically visit the Central Library Circulation Desk (1st Floor) and hand over this physical book copy.
+                                  </p>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenReturnModal(tx)}
+                                  className="w-full py-2 px-3 rounded-xl bg-indigo-600/20 hover:bg-indigo-600 border border-indigo-500/40 text-indigo-300 hover:text-white text-xs font-bold flex items-center justify-center gap-2 transition"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span>Submit Book Return Request</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -780,9 +846,11 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
               <div className="space-y-4">
                 {myRequests.map(req => {
                   const book = books.find(b => b.id === req.bookId);
+                  const isReturn = req.type === 'RETURN';
                   const isPending = req.status === 'PENDING';
                   const isApproved = req.status === 'APPROVED';
                   const isRejected = req.status === 'REJECTED';
+                  const isCompleted = req.status === 'COMPLETED';
 
                   return (
                     <div
@@ -798,16 +866,27 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
                           />
                         </div>
                         <div>
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase ${
                               isApproved
                                 ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                : isCompleted
+                                ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
                                 : isRejected
                                 ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
                                 : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
                             }`}>
                               {req.status}
                             </span>
+                            {isReturn ? (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">
+                                Book Return Request
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase">
+                                Issue Request
+                              </span>
+                            )}
                             <span className="text-[11px] text-slate-400 font-mono">ID: {req.id}</span>
                           </div>
 
@@ -831,10 +910,12 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
                           <div className="p-3 rounded-2xl bg-emerald-950/40 border border-emerald-800/60 text-emerald-300 text-xs">
                             <div className="font-bold flex items-center gap-1.5">
                               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                              <span>Ready for Physical Pickup!</span>
+                              <span>{isReturn ? 'Return Approved • Visit Library Desk!' : 'Ready for Physical Pickup!'}</span>
                             </div>
-                            <p className="text-[11px] text-emerald-200/80 mt-1">
-                              Present your Digital Card at the Circulation Desk.
+                            <p className="text-[11px] text-emerald-200/90 mt-1 max-w-xs">
+                              {isReturn
+                                ? 'Please physically visit the Central Library Circulation Desk (1st Floor) and hand over the book copy.'
+                                : 'Present your Digital Card at the Circulation Desk to collect your book.'}
                             </p>
                           </div>
                         )}
@@ -843,16 +924,24 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-amber-400 flex items-center gap-1">
                               <Clock className="w-3.5 h-3.5" />
-                              <span>Under review by Librarian</span>
+                              <span>{isReturn ? 'Awaiting Librarian Return Review' : 'Under review by Librarian'}</span>
                             </span>
-                            <button
-                              onClick={() => handleCancelRequest(req.id, req.bookName)}
-                              className="px-3 py-1.5 rounded-xl border border-rose-500/40 hover:bg-rose-500/10 text-rose-400 text-xs font-semibold transition flex items-center gap-1"
-                              title="Cancel Request"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Cancel</span>
-                            </button>
+                            {!isReturn && (
+                              <button
+                                onClick={() => handleCancelRequest(req.id, req.bookName)}
+                                className="px-3 py-1.5 rounded-xl border border-rose-500/40 hover:bg-rose-500/10 text-rose-400 text-xs font-semibold transition flex items-center gap-1"
+                                title="Cancel Request"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Cancel</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {isCompleted && (
+                          <div className="p-2.5 rounded-xl bg-blue-950/40 border border-blue-800/60 text-blue-300 text-xs">
+                            <span className="font-bold">Book Received & Verified at Desk</span>
                           </div>
                         )}
 
@@ -860,7 +949,7 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
                           <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs">
                             <span className="font-bold">Request Rejected:</span>
                             <p className="text-[11px] mt-0.5 text-rose-200/80">
-                              {req.remarks || 'Stock reserved or borrower active quota exceeded.'}
+                              {req.rejectionReason || req.remarks || 'Stock reserved or verification required at counter.'}
                             </p>
                           </div>
                         )}
@@ -1105,6 +1194,93 @@ export default function StudentDashboard({ user, onLogout, onSwitchRole, isDarkM
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>{submittingReq ? 'Submitting...' : 'Request Book Issue'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- BOOK RETURN REQUEST MODAL ---------------- */}
+      {returnModalTx && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="bg-[#0f172a] border border-slate-700 rounded-3xl max-w-md w-full p-6 shadow-2xl">
+            <div className="flex items-start justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white uppercase">
+                  Return Book
+                </span>
+                <span className="text-xs font-mono text-slate-400">{returnModalTx.bookBarcode}</span>
+              </div>
+              <button
+                onClick={() => setReturnModalTx(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="my-4 space-y-3">
+              <h3 className="text-base font-bold text-white">{returnModalTx.bookName}</h3>
+              <div className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 text-xs space-y-1.5">
+                <div className="flex justify-between text-slate-400">
+                  <span>Issued Date:</span>
+                  <span className="text-white font-medium">{returnModalTx.issueDate}</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Return Due Date:</span>
+                  <span className="text-amber-400 font-medium font-mono">{returnModalTx.dueDate}</span>
+                </div>
+                {returnModalTx.fineAmount > 0 && (
+                  <div className="flex justify-between text-rose-400 font-bold">
+                    <span>Accrued Fine:</span>
+                    <span>₹{returnModalTx.fineAmount}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Workflow notice */}
+              <div className="p-3 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 text-indigo-300 text-xs space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span>Two-Step Return Process:</span>
+                </p>
+                <ol className="list-decimal list-inside text-[11px] text-slate-300 space-y-0.5 pl-1">
+                  <li>Submit this online return request for Admin review.</li>
+                  <li>Once approved, physically visit the Circulation Desk (1st Floor) and hand over the book.</li>
+                </ol>
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmitReturnRequest} className="space-y-3 pt-2 border-t border-slate-800">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Return Notes / Condition Remarks (Optional):
+                </label>
+                <input
+                  type="text"
+                  value={returnRemarks}
+                  onChange={(e) => setReturnRemarks(e.target.value)}
+                  placeholder="e.g. Good condition, finished reading course material"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setReturnModalTx(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-700 text-xs text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingReturn}
+                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>{submittingReturn ? 'Submitting...' : 'Confirm Return Request'}</span>
                 </button>
               </div>
             </form>

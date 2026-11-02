@@ -981,6 +981,202 @@ export const db = {
     return requests[reqIndex];
   },
 
+  // ---------------- BOOK RETURN REQUEST & PHYSICAL DESK RETURN WORKFLOW ----------------
+  submitReturnRequest({ transactionId, userId, remarks = '' }) {
+    const transactions = this.getTransactions();
+    const txIndex = transactions.findIndex(t => t.id === transactionId);
+    if (txIndex === -1) throw new Error('Active loan record not found.');
+
+    const tx = transactions[txIndex];
+    if (tx.status === 'RETURNED') throw new Error('This book copy has already been returned.');
+
+    if (tx.returnStatus === 'PENDING_ADMIN_REVIEW') {
+      throw new Error('You have already submitted a return request for this book. Awaiting Admin review.');
+    }
+    if (tx.returnStatus === 'APPROVED_VISIT_DESK') {
+      throw new Error('Your return request is already APPROVED! Please visit the Central Library Circulation Desk to physically submit the book.');
+    }
+
+    const nowStr = new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // 1. Update transaction returnStatus
+    transactions[txIndex] = {
+      ...tx,
+      returnStatus: 'PENDING_ADMIN_REVIEW',
+      returnRequestDate: nowStr,
+      returnRemarks: remarks || 'Student initiated online return request.'
+    };
+    this.saveTransactions(transactions);
+
+    // 2. Add to requests queue with type: 'RETURN'
+    const requests = this.getRequests();
+    const newReturnReq = {
+      id: `RET-${Date.now().toString().slice(-4)}`,
+      type: 'RETURN',
+      transactionId: tx.id,
+      userId: tx.userId,
+      userName: tx.userName,
+      userEnrollment: tx.userEnrollment,
+      userEmail: tx.userEmail,
+      userRole: tx.userRole,
+      bookId: tx.bookId,
+      bookName: tx.bookName,
+      bookBarcode: tx.bookBarcode,
+      requestDate: nowStr,
+      status: 'PENDING',
+      remarks: remarks || 'Student initiated online return request.'
+    };
+    requests.unshift(newReturnReq);
+    this.saveRequests(requests);
+
+    // 3. Log notification
+    this.logEmail({
+      recipient: tx.userEmail,
+      studentName: tx.userName,
+      bookName: tx.bookName,
+      action: 'Book Return Request Submitted',
+      subject: `MITS Library: Return Request Submitted for '${tx.bookName}'`,
+      status: 'Delivered',
+      notes: `Submitted on ${nowStr}. Awaiting librarian verification.`
+    });
+
+    return { transaction: transactions[txIndex], request: newReturnReq };
+  },
+
+  approveReturnRequest(requestIdOrTxId, adminName = 'Admin Superuser') {
+    const requests = this.getRequests();
+    const transactions = this.getTransactions();
+
+    let reqIndex = requests.findIndex(r => r.id === requestIdOrTxId);
+    let txId = reqIndex !== -1 ? requests[reqIndex].transactionId : requestIdOrTxId;
+
+    const txIndex = transactions.findIndex(t => t.id === txId);
+    if (txIndex === -1) throw new Error('Transaction record not found.');
+
+    const tx = transactions[txIndex];
+    const todayStr = new Date().toLocaleDateString('en-GB');
+
+    // Update transaction
+    transactions[txIndex] = {
+      ...tx,
+      returnStatus: 'APPROVED_VISIT_DESK',
+      returnApprovedAt: todayStr,
+      returnApprovedBy: adminName
+    };
+    this.saveTransactions(transactions);
+
+    // Update request record if exists
+    if (reqIndex !== -1) {
+      requests[reqIndex] = {
+        ...requests[reqIndex],
+        status: 'APPROVED',
+        remarks: 'Approved by librarian. Student must physically visit the circulation desk to submit the book.'
+      };
+      this.saveRequests(requests);
+    }
+
+    // Log notification
+    this.logEmail({
+      recipient: tx.userEmail,
+      studentName: tx.userName,
+      bookName: tx.bookName,
+      action: 'Return Request Approved - Visit Library Desk',
+      subject: `MITS Library: Return Request APPROVED for '${tx.bookName}'`,
+      status: 'Delivered',
+      notes: `Approved by ${adminName}. Action Required: Please physically visit the Central Library Circulation Desk (1st Floor) and hand over the book.`
+    });
+
+    return transactions[txIndex];
+  },
+
+  confirmPhysicalBookReturn(transactionId, adminName = 'Admin Superuser') {
+    return this.returnBook(transactionId, adminName);
+  },
+
+  rejectReturnRequest(requestIdOrTxId, reason = 'Reported Damaged or Physical Verification Required', adminName = 'Admin Superuser') {
+    const requests = this.getRequests();
+    const transactions = this.getTransactions();
+
+    let reqIndex = requests.findIndex(r => r.id === requestIdOrTxId);
+    let txId = reqIndex !== -1 ? requests[reqIndex].transactionId : requestIdOrTxId;
+
+    const txIndex = transactions.findIndex(t => t.id === txId);
+    if (txIndex !== -1) {
+      transactions[txIndex] = {
+        ...transactions[txIndex],
+        returnStatus: 'REJECTED',
+        returnRejectionReason: reason
+      };
+      this.saveTransactions(transactions);
+    }
+
+    if (reqIndex !== -1) {
+      requests[reqIndex] = {
+        ...requests[reqIndex],
+        status: 'REJECTED',
+        rejectionReason: reason
+      };
+      this.saveRequests(requests);
+    }
+
+    return true;
+  },
+
+  // ---------------- BOOK HISTORY (COMPLETE ISSUING & RETURNING LIFECYCLE) ----------------
+  getBookHistory(bookIdOrBarcode) {
+    const books = this.getBooks();
+    const cleanQuery = (bookIdOrBarcode || '').trim().toLowerCase();
+    const book = books.find(b => b.id.toLowerCase() === cleanQuery || b.barcode.toLowerCase() === cleanQuery || b.name.toLowerCase() === cleanQuery);
+    
+    const transactions = this.getTransactions();
+    const bookTransactions = transactions.filter(t => {
+      if (book) {
+        return t.bookId === book.id || t.bookBarcode?.toLowerCase() === book.barcode.toLowerCase();
+      }
+      return t.bookId?.toLowerCase() === cleanQuery || t.bookBarcode?.toLowerCase() === cleanQuery || t.bookName?.toLowerCase().includes(cleanQuery);
+    });
+
+    const totalIssues = bookTransactions.length;
+    const activeLoans = bookTransactions.filter(t => t.status === 'ISSUED' || t.status === 'OVERDUE').length;
+    const totalReturns = bookTransactions.filter(t => t.status === 'RETURNED').length;
+    const pendingReturnRequests = bookTransactions.filter(t => t.returnStatus === 'PENDING_ADMIN_REVIEW' || t.returnStatus === 'APPROVED_VISIT_DESK').length;
+
+    return {
+      book: book || (bookTransactions.length > 0 ? {
+        id: bookTransactions[0].bookId,
+        name: bookTransactions[0].bookName,
+        barcode: bookTransactions[0].bookBarcode,
+        author: 'MITS Library Title',
+        shelf: 'Central Reading Room'
+      } : null),
+      totalIssues,
+      activeLoans,
+      totalReturns,
+      pendingReturnRequests,
+      transactions: bookTransactions
+    };
+  },
+
+  getAllBooksHistorySummary() {
+    const books = this.getBooks();
+    const transactions = this.getTransactions();
+
+    return books.map(book => {
+      const bookTxs = transactions.filter(t => t.bookId === book.id || t.bookBarcode === book.barcode);
+      const activeCount = bookTxs.filter(t => t.status === 'ISSUED' || t.status === 'OVERDUE').length;
+      const returnedCount = bookTxs.filter(t => t.status === 'RETURNED').length;
+      const lastIssue = bookTxs[0] ? bookTxs[0].issueDate : 'Never Issued';
+
+      return {
+        ...book,
+        totalIssuedCount: bookTxs.length,
+        activeLoansCount: activeCount,
+        returnedCount,
+        lastIssueDate: lastIssue
+      };
+    });
+  },
+
   // Return Book module
   returnBook(transactionId, adminName = 'Admin Superuser') {
     const transactions = this.getTransactions();
@@ -1013,19 +1209,32 @@ export const db = {
       ...tx,
       status: 'RETURNED',
       actualReturnDate: todayStr,
+      returnStatus: 'COMPLETED',
       returnedTo: adminName
     };
 
     this.saveTransactions(transactions);
 
+    // Also update any matching return request in requests
+    const requests = this.getRequests();
+    const retReqIndex = requests.findIndex(r => r.transactionId === transactionId && r.type === 'RETURN');
+    if (retReqIndex !== -1) {
+      requests[retReqIndex] = {
+        ...requests[retReqIndex],
+        status: 'COMPLETED',
+        remarks: `Physical book copy received and verified at desk by ${adminName} on ${todayStr}.`
+      };
+      this.saveRequests(requests);
+    }
+
     this.logEmail({
       recipient: tx.userEmail,
       studentName: tx.userName,
       bookName: tx.bookName,
-      action: 'Book Return Acknowledged',
+      action: 'Physical Book Return Confirmed',
       subject: `MITS Library: Return confirmation for '${tx.bookName}'`,
       status: 'Delivered',
-      notes: `Received by ${adminName} on ${todayStr}. Inventory restocked.`
+      notes: `Physically received and verified by ${adminName} on ${todayStr}. Inventory restocked (+1).`
     });
 
     if (transactionId.includes('-')) {
